@@ -66,8 +66,8 @@ def render_line(lineno: int, source_text: str, ld: LineData) -> str:
     )
 
 
-def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str) -> str:
-    total_lines = len(lines)
+def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str, total_source_lines: int) -> str:
+    total_lines = total_source_lines
     deliberate_covered = sum(1 for ld in lines.values() if ld.deliberate_executions > 0)
     incidental_covered = sum(1 for ld in lines.values() if ld.incidental_executions > 0)
     deliberate_pct = deliberate_covered / total_lines * 100.0 if total_lines else 0.0
@@ -165,12 +165,14 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str, o
     try:
         source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()
         source_map = {i + 1: line for i, line in enumerate(source_lines)}
+        all_linenos: list[int] = list(range(1, len(source_lines) + 1))
     except Exception:
         source_map = {}
+        all_linenos = sorted(lines.keys())
 
     rows = []
-    for lineno in sorted(lines.keys()):
-        ld = lines[lineno]
+    for lineno in all_linenos:
+        ld = lines.get(lineno, LineData())
         source_text = source_map.get(lineno, "")
         rows.append(render_line(lineno, source_text, ld))
 
@@ -196,8 +198,12 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
         for rel_path, lines in sorted(folder_files.items()):
             file_html_name = rel_path.replace("/", "__") + ".html"
             abs_path = abs_path_map.get(rel_path, rel_path)
+            try:
+                total_source_lines = len(Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines())
+            except Exception:
+                total_source_lines = len(lines)
             _write_file_page(rel_path, lines, abs_path, output_dir / file_html_name)
-            file_rows.append(render_file_row(rel_path, lines, file_html_name))
+            file_rows.append(render_file_row(rel_path, lines, file_html_name, total_source_lines))
         folder_sections.append(render_folder_section(folder, "".join(file_rows)))
 
     (output_dir / "index.html").write_text(

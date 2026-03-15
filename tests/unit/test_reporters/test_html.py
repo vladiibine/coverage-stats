@@ -133,6 +133,95 @@ def test_incidental_only_line_gets_yellow_class(tmp_path):
     assert "incidental" in content
 
 
+def test_per_file_page_shows_all_source_lines(tmp_path):
+    """All lines in the source file must appear, not just covered lines."""
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    src_file = rootdir / "mod.py"
+    src_file.write_text("line1\nline2\nline3\nline4\nline5\n")
+
+    store = SessionStore()
+    # Only line 3 is covered
+    store.get_or_create((str(src_file), 3)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "mod.py.html").read_text()
+
+    # Every line number 1-5 must appear
+    for lineno in range(1, 6):
+        assert f"<td>{lineno}</td>" in content, f"Line {lineno} missing from file page"
+
+
+def test_per_file_page_shows_uncovered_source_text(tmp_path):
+    """Source text of uncovered lines must appear in the page."""
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    src_file = rootdir / "mod.py"
+    src_file.write_text("covered_line\nuncovered_line\n")
+
+    store = SessionStore()
+    store.get_or_create((str(src_file), 1)).incidental_executions = 1
+    # line 2 is NOT in the store
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "mod.py.html").read_text()
+
+    assert "uncovered_line" in content
+
+
+def test_uncovered_lines_have_no_highlight_class(tmp_path):
+    """Lines with no coverage data must not get the 'deliberate' or 'incidental' class."""
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    src_file = rootdir / "mod.py"
+    src_file.write_text("first\nsecond\nthird\n")
+
+    store = SessionStore()
+    store.get_or_create((str(src_file), 1)).deliberate_executions = 1
+    # lines 2 and 3 are uncovered
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "mod.py.html").read_text()
+
+    # Row for uncovered line 2 should be a plain <tr> without a class attribute on it
+    # We check that "second" (the source text) appears in a <tr> that has no class
+    import re
+    rows = re.findall(r'<tr[^>]*>.*?</tr>', content)
+    uncovered_rows = [r for r in rows if "second" in r or "third" in r]
+    assert uncovered_rows, "Uncovered lines not found in output"
+    for row in uncovered_rows:
+        assert 'class="deliberate"' not in row
+        assert 'class="incidental"' not in row
+
+
+def test_index_line_count_reflects_source_file_not_just_covered_lines(tmp_path):
+    """The line count in the index summary must equal the source file's total lines."""
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    src_file = rootdir / "mod.py"
+    src_file.write_text("\n".join(f"line{i}" for i in range(1, 11)))  # 10 lines
+
+    store = SessionStore()
+    # Only 2 of 10 lines are covered
+    store.get_or_create((str(src_file), 1)).deliberate_executions = 1
+    store.get_or_create((str(src_file), 5)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "index.html").read_text()
+
+    # The index must show 10 (total source lines), not 2 (tracked lines)
+    assert "<td>10</td>" in content
+    assert "<td>2</td>" not in content
+
+
 def test_unreadable_source_falls_back_gracefully(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -217,14 +306,14 @@ def test_render_line_escapes_html():
 def test_render_file_row_contains_link():
     ld = _make_ld(de=1)
     lines = {1: ld, 2: _make_ld()}
-    result = render_file_row("src/foo.py", lines, "src__foo.py.html")
+    result = render_file_row("src/foo.py", lines, "src__foo.py.html", 2)
     assert 'href="src__foo.py.html"' in result
     assert "src/foo.py" in result
 
 
 def test_render_file_row_pct_calculation():
     lines = {1: _make_ld(de=1), 2: _make_ld(), 3: _make_ld()}
-    result = render_file_row("x.py", lines, "x.py.html")
+    result = render_file_row("x.py", lines, "x.py.html", 3)
     # 1/3 deliberate = 33.3%
     assert "33.3%" in result
 

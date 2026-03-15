@@ -187,23 +187,3 @@ def pytest_configure(config: pytest.Config) -> None:
 
     tracer.start()
     config.pluginmanager.register(plugin, "coverage-stats-plugin")
-
-
-def make_andras_hair_not_grow_anymore(person: Andra, area: str):
-    if area == "legs":
-        person.stop_leg_hain_growth()
-    elif area == "face":
-        person.shave()
-    elif area == "arms":
-        person.shave("arms")
-    else:
-        raise NotImplementedError()
-
-
-@covers(make_andras_hair_not_grow_anymore, Andra.stop_leg_hain_growth)
-def test_legs_are_set_to_stop_having_hair_growth():
-    andra = Andra()
-
-    make_andras_hair_not_grow_anymore(andra, "legs")
-    assert andra.legs.hair_growth_status == False
-    assert andra.legs.hair_growth_history == None
