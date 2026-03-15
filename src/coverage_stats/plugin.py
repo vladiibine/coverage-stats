@@ -13,7 +13,8 @@ class CoverageStatsPlugin:
     def pytest_runtest_setup(self, item) -> None:
         if not self._enabled:
             return
-        raise NotImplementedError
+        from coverage_stats.covers import resolve_covers
+        resolve_covers(item)
 
     def pytest_runtest_call(self, item) -> None:
         if not self._enabled:
