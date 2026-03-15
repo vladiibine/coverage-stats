@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from coverage_stats.profiler import LineTracer
+    from coverage_stats.store import SessionStore
 
 
 def _is_xdist_worker(config) -> bool:
@@ -16,8 +21,8 @@ def _is_xdist_controller(config) -> bool:
 class CoverageStatsPlugin:
     def __init__(self) -> None:
         self._enabled: bool = False
-        self._store: object = None
-        self._tracer: object = None
+        self._store: SessionStore | None = None
+        self._tracer: LineTracer | None = None
 
     def pytest_collection_finish(self, session) -> None:
         if not self._enabled:
