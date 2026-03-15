@@ -15,7 +15,22 @@ Items surfaced during review but not caused by the current story. Address in the
 
 ## `SessionStore.get_or_create` type annotation
 
-**Source:** Review finding from project-scaffold adversarial review
+**Status:** RESOLVED in data-foundation story. Annotated as `def get_or_create(self, key: tuple[str, int]) -> LineData`.
+
+---
+
+## `SessionStore.from_dict` defensive validation
+
+**Source:** Review findings from data-foundation adversarial review
 **File:** `src/coverage_stats/store.py`
-**Issue:** `get_or_create(self, key)` has no type annotation on `key` or return type. Intent is `key: tuple[str, int]` → `LineData`.
-**Recommended fix:** In the `SessionStore` implementation story, annotate as `def get_or_create(self, key: tuple[str, int]) -> LineData`.
+**Issue:** `from_dict` has no validation: missing null-byte in key raises `ValueError`; values list shorter than 4 raises `IndexError`; non-integer values corrupt silently.
+**Context:** Internal xdist format — `to_dict` is the only producer. No real-world risk in MVP. Add validation if `from_dict` is ever exposed as a public API or deserializes untrusted data.
+
+---
+
+## `SessionStore.merge` self-merge behaviour
+
+**Source:** Review findings from data-foundation adversarial review
+**File:** `src/coverage_stats/store.py`
+**Issue:** `store.merge(store)` doubles all values — no guard, no documentation.
+**Context:** Never occurs in the intended xdist flow (workers are separate processes). Acceptable in MVP. Document if `merge` is ever exposed publicly.
