@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+
+def _is_xdist_worker(config) -> bool:
+    return hasattr(config, "workerinput")
+
+
+def _is_xdist_controller(config) -> bool:
+    return not _is_xdist_worker(config) and config.pluginmanager.hasplugin("xdist")
+
 
 class CoverageStatsPlugin:
     def __init__(self) -> None:
@@ -48,30 +58,43 @@ class CoverageStatsPlugin:
         ctx = item.config._coverage_stats_ctx
         record_assertion(ctx)
 
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_testnodedown(self, node, error) -> None:
+        if not self._enabled:
+            return
+        import json
+        from coverage_stats.store import SessionStore
+        raw = getattr(node, "workeroutput", {}).get("coverage_stats_data")
+        if raw:
+            worker_store = SessionStore.from_dict(json.loads(raw))
+            self._store.merge(worker_store)
+
     def pytest_sessionfinish(self, session, exitstatus) -> None:
         if not self._enabled:
             return
+        config = session.config
+        if _is_xdist_worker(config):
+            import json
+            if self._tracer is not None:
+                self._tracer.stop()
+            config.workeroutput["coverage_stats_data"] = json.dumps(self._store.to_dict())
+            return
+        # controller or single-process: call reporters
         if self._tracer is not None:
             self._tracer.stop()
-
-        config = session.config
         fmt_str = config.getoption("--coverage-stats-format") or config.getini("coverage_stats_format")
         formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
         out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")
         output_dir = Path(out_str).resolve()
-
         for fmt in formats:
             if fmt == "json":
                 from coverage_stats.reporters.json_reporter import write_json
-
                 write_json(self._store, config, output_dir)
             elif fmt == "csv":
                 from coverage_stats.reporters.csv_reporter import write_csv
-
                 write_csv(self._store, config, output_dir)
             elif fmt == "html":
                 from coverage_stats.reporters.html import write_html
-
                 write_html(self._store, config, output_dir)
 
 
@@ -120,6 +143,16 @@ def pytest_configure(config) -> None:
         config.pluginmanager.register(plugin, "coverage-stats-plugin")
         return
 
+    if _is_xdist_controller(config):
+        from coverage_stats.store import SessionStore
+        store = SessionStore()
+        config._coverage_stats_ctx = None
+        plugin._store = store
+        plugin._tracer = None
+        config.pluginmanager.register(plugin, "coverage-stats-plugin")
+        return
+
+    # worker or single-process: full setup
     from coverage_stats.profiler import LineTracer, ProfilerContext
     from coverage_stats.store import SessionStore
 

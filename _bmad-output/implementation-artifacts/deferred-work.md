@@ -138,3 +138,21 @@ Three deferred hardening items (not blocking for MVP):
 **Files:** `src/coverage_stats/reporters/html.py`
 **Issue:** `str(Path(rel_path).parent)` returns `"."` for top-level files (e.g., `conftest.py`), so the folder section header reads `"."` instead of something user-friendly like `"(root)"`.
 **Context:** Cosmetic. Replace `"."` with `"(root)"` when polishing the HTML output.
+
+---
+
+## xdist — silent data loss when worker crashes before serialising
+
+**Source:** Review findings from xdist-worker-controller-split adversarial review
+**File:** `src/coverage_stats/plugin.py`
+**Issue:** When a worker crashes (`error` is not `None` in `pytest_testnodedown`), its `coverage_stats_data` key may be absent and coverage from that worker's test slice is silently dropped. No warning or log is emitted. The spec explicitly deferred this decision (Ask First).
+**Context:** Add a `warnings.warn` when `error is not None and raw is None` when user-facing error messages are polished.
+
+---
+
+## xdist — `ctx=None` while `_enabled=True` on controller is a latent hook crash risk
+
+**Source:** Review findings from xdist-worker-controller-split adversarial review
+**File:** `src/coverage_stats/plugin.py`
+**Issue:** The controller `pytest_configure` path sets `config._coverage_stats_ctx = None` but `plugin._enabled = True`. If any of the test-phase hooks (`pytest_runtest_setup`, `pytest_runtest_call`, etc.) ever fire on the controller process, they will `AttributeError` on `ctx.current_test_item`. In normal xdist operation these hooks do not fire on the controller; the risk is latent.
+**Context:** Add a `if ctx is None: return` guard to each test-phase hook when hardening the plugin for unusual xdist configurations.
