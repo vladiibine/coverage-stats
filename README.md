@@ -69,3 +69,16 @@ pytest --coverage-stats --coverage-stats-format=json,csv --coverage-stats-output
 **CSV** (`coverage-stats.csv`) — one row per line, columns: `file`, `lineno`, `incidental_executions`, `deliberate_executions`, `incidental_asserts`, `deliberate_asserts`.
 
 > **Note:** Assert density metrics require pytest's default assertion rewriting. Running with `--assert=plain` disables assert counting.
+
+## Development
+
+### Type checking
+
+Install dev dependencies and run mypy:
+
+```bash
+pip install -e ".[dev]"
+mypy
+```
+
+mypy is configured in `pyproject.toml` under `[tool.mypy]` with strict mode enabled.

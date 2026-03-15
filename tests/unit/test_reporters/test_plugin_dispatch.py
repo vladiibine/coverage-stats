@@ -9,7 +9,7 @@ from coverage_stats.plugin import CoverageStatsPlugin
 
 def make_config(rootdir: Path, fmt: str, out_dir: str) -> SimpleNamespace:
     return SimpleNamespace(
-        rootdir=str(rootdir),
+        rootpath=rootdir,
         getoption=lambda opt, **kw: {
             "--coverage-stats-format": fmt,
             "--coverage-stats-output": str(out_dir),
@@ -52,7 +52,7 @@ def test_sessionfinish_json_and_csv_both_written(tmp_path):
 
 
 def test_sessionfinish_html_format_no_error_no_file(tmp_path):
-    """AC-5: --coverage-stats-format=html is silently skipped, no file written, no error."""
+    """AC-5: --coverage-stats-format=html writes index.html, no coverage-stats.html, no error."""
     store = SessionStore()
     rootdir = tmp_path / "project"
     rootdir.mkdir()
@@ -64,5 +64,6 @@ def test_sessionfinish_html_format_no_error_no_file(tmp_path):
     plugin = make_plugin(store)
     plugin.pytest_sessionfinish(session=session, exitstatus=0)  # must not raise
 
+    # HTML report uses index.html, not coverage-stats.html
     assert not (out_dir / "coverage-stats.html").exists()
-    assert not out_dir.exists() or not any(out_dir.iterdir())
+    assert (out_dir / "index.html").exists()

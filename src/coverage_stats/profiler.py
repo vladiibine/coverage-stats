@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import sys
+import types
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    import pytest
+    from coverage_stats.store import SessionStore
+
+# sys.settrace expects Callable[[FrameType, str, Any], TraceFunction | None].
+# Using Any for arg and return keeps this compatible with typeshed's TraceFunction.
+_TraceFunc = Callable[[types.FrameType, str, Any], Any]
 
 
 @dataclass
 class ProfilerContext:
-    current_test_item: Any | None = None
+    current_test_item: pytest.Item | None = None
     current_phase: str | None = None  # "setup" | "call" | "teardown"
     current_assert_count: int = 0
     source_dirs: list[str] = field(default_factory=list)
@@ -17,10 +26,10 @@ class ProfilerContext:
 
 
 class LineTracer:
-    def __init__(self, context: ProfilerContext, store: Any) -> None:
+    def __init__(self, context: ProfilerContext, store: SessionStore) -> None:
         self._context = context
         self._store = store
-        self._prev_trace: Any = None
+        self._prev_trace: _TraceFunc | None = None
 
     def start(self) -> None:
         self._prev_trace = sys.gettrace()
@@ -38,7 +47,7 @@ class LineTracer:
         prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
         return "site-packages" not in filename and not filename.startswith(prefix)
 
-    def _trace(self, frame: Any, event: str, arg: Any) -> Any:
+    def _trace(self, frame: types.FrameType, event: str, arg: Any) -> _TraceFunc | None:
         try:
             if self._prev_trace is not None:
                 self._prev_trace(frame, event, arg)
@@ -55,7 +64,7 @@ class LineTracer:
             lineno = frame.f_lineno
             key = (filename, lineno)
             ld = self._store.get_or_create(key)
-            covers_lines = getattr(ctx.current_test_item, "_covers_lines", frozenset())
+            covers_lines: frozenset[tuple[str, int]] = getattr(ctx.current_test_item, "_covers_lines", frozenset())
             if key in covers_lines:
                 ld.deliberate_executions += 1
             else:

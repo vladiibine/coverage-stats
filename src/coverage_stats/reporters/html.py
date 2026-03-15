@@ -3,6 +3,9 @@ from __future__ import annotations
 import html as _html
 from collections import defaultdict
 from pathlib import Path
+import pytest
+
+from coverage_stats.store import LineData, SessionStore
 
 _CSS = """
 body {
@@ -42,7 +45,7 @@ a {
 """
 
 
-def render_line(lineno: int, source_text: str, ld) -> str:
+def render_line(lineno: int, source_text: str, ld: LineData) -> str:
     if ld.deliberate_executions > 0:
         css_class = "deliberate"
     elif ld.incidental_executions > 0:
@@ -63,7 +66,7 @@ def render_line(lineno: int, source_text: str, ld) -> str:
     )
 
 
-def render_file_row(rel_path: str, lines: dict, file_html_name: str) -> str:
+def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str) -> str:
     total_lines = len(lines)
     deliberate_covered = sum(1 for ld in lines.values() if ld.deliberate_executions > 0)
     incidental_covered = sum(1 for ld in lines.values() if ld.incidental_executions > 0)
@@ -139,26 +142,26 @@ def render_file_page(rel_path: str, lines_html: str) -> str:
     )
 
 
-def _group_by_rel_path(store, config) -> dict[str, dict[int, object]]:
-    files: dict[str, dict[int, object]] = defaultdict(dict)
+def _group_by_rel_path(store: SessionStore, config: pytest.Config) -> dict[str, dict[int, LineData]]:
+    files: dict[str, dict[int, LineData]] = defaultdict(dict)
     for (abs_path, lineno), ld in store._data.items():
         try:
-            rel = Path(abs_path).relative_to(Path(str(config.rootdir))).as_posix()
+            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
         except ValueError:
             rel = Path(abs_path).as_posix()
         files[rel][lineno] = ld
     return files
 
 
-def _group_by_folder(files: dict[str, dict]) -> dict[str, dict[str, dict]]:
-    folders: dict[str, dict[str, dict]] = defaultdict(dict)
+def _group_by_folder(files: dict[str, dict[int, LineData]]) -> dict[str, dict[str, dict[int, LineData]]]:
+    folders: dict[str, dict[str, dict[int, LineData]]] = defaultdict(dict)
     for rel_path, lines in files.items():
         folder = str(Path(rel_path).parent)
         folders[folder][rel_path] = lines
     return folders
 
 
-def _write_file_page(rel_path: str, lines: dict[int, object], abs_path: str, out_path: Path) -> None:
+def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str, out_path: Path) -> None:
     try:
         source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()
         source_map = {i + 1: line for i, line in enumerate(source_lines)}
@@ -174,7 +177,7 @@ def _write_file_page(rel_path: str, lines: dict[int, object], abs_path: str, out
     out_path.write_text(render_file_page(rel_path, "".join(rows)), encoding="utf-8")
 
 
-def write_html(store, config, output_dir: Path) -> None:
+def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> None:
     files = _group_by_rel_path(store, config)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -182,7 +185,7 @@ def write_html(store, config, output_dir: Path) -> None:
     abs_path_map: dict[str, str] = {}
     for (abs_path, _lineno) in store._data.keys():
         try:
-            rel = Path(abs_path).relative_to(Path(str(config.rootdir))).as_posix()
+            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
         except ValueError:
             rel = Path(abs_path).as_posix()
         abs_path_map[rel] = abs_path

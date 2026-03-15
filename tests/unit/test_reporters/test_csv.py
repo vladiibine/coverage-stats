@@ -9,7 +9,7 @@ from coverage_stats.reporters.csv_reporter import write_csv
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
-    return SimpleNamespace(rootdir=str(rootdir))
+    return SimpleNamespace(rootpath=rootdir)
 
 
 def read_csv_rows(path: Path) -> list[list[str]]:

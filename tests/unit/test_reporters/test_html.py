@@ -15,7 +15,7 @@ from coverage_stats.reporters.html import (
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
-    return SimpleNamespace(rootdir=str(rootdir))
+    return SimpleNamespace(rootpath=rootdir)
 
 
 # ---------------------------------------------------------------------------

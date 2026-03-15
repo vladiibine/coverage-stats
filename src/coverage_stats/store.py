@@ -40,7 +40,7 @@ class SessionStore:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> SessionStore:
+    def from_dict(cls, data: dict[str, list[int]]) -> SessionStore:
         store = cls()
         for raw_key, values in data.items():
             path, lineno_str = raw_key.split("\x00", 1)

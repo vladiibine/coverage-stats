@@ -3,13 +3,16 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 from pathlib import Path
+import pytest
+
+from coverage_stats.store import LineData, SessionStore
 
 
-def write_csv(store, config, output_dir: Path) -> None:
-    files: dict[str, dict] = defaultdict(dict)
+def write_csv(store: SessionStore, config: pytest.Config, output_dir: Path) -> None:
+    files: dict[str, dict[int, LineData]] = defaultdict(dict)
     for (abs_path, lineno), ld in store._data.items():
         try:
-            rel = Path(abs_path).relative_to(Path(str(config.rootdir))).as_posix()
+            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
         except ValueError:
             rel = Path(abs_path).as_posix()
         files[rel][lineno] = ld

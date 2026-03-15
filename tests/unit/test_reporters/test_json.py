@@ -9,7 +9,7 @@ from coverage_stats.reporters.json_reporter import write_json
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
-    return SimpleNamespace(rootdir=str(rootdir))
+    return SimpleNamespace(rootpath=rootdir)
 
 
 def test_empty_store_produces_empty_files(tmp_path):
