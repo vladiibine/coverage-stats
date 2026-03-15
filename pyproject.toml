@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coverage-stats"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["pytest"]
+
+[project.optional-dependencies]
+dev = ["ruff", "mypy"]
+
+[project.entry-points."pytest11"]
+coverage-stats = "coverage_stats.plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = ["tests"]

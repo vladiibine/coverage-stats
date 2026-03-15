@@ -1,4 +1,9 @@
 **/*.pyc
+__pycache__/
+*.egg-info/
+dist/
+.mypy_cache/
+.ruff_cache/
 .coverage
 .coverage-stats-meta.json
 htmlcov_stats/
@@ -6,3 +11,4 @@ htmlcov_stats/
 .claude
 .DS_Store
 .idea/
+_bmad/
