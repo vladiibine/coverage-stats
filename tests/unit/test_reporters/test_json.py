@@ -1,1 +1,126 @@
 from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+from coverage_stats.store import SessionStore
+from coverage_stats.reporters.json_reporter import write_json
+
+
+def make_config(rootdir: Path) -> SimpleNamespace:
+    return SimpleNamespace(rootdir=str(rootdir))
+
+
+def test_empty_store_produces_empty_files(tmp_path):
+    store = SessionStore()
+    config = make_config(tmp_path)
+    write_json(store, config, tmp_path / "out")
+    result = json.loads((tmp_path / "out" / "coverage-stats.json").read_text())
+    assert result == {"files": {}}
+
+
+def test_single_file_multi_line_structure(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    abs_file = str(rootdir / "src" / "foo.py")
+    store.get_or_create((abs_file, 1)).incidental_executions = 1
+    store.get_or_create((abs_file, 3)).deliberate_executions = 2
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_json(store, config, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    assert "src/foo.py" in result["files"]
+    file_data = result["files"]["src/foo.py"]
+    assert "1" in file_data["lines"]
+    assert "3" in file_data["lines"]
+    assert file_data["lines"]["1"]["incidental_executions"] == 1
+    assert file_data["lines"]["3"]["deliberate_executions"] == 2
+
+
+def test_summary_calculations(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    abs_file = str(rootdir / "src" / "foo.py")
+    # 2 lines: line 1 has deliberate_executions=5, line 2 has none
+    store.get_or_create((abs_file, 1)).deliberate_executions = 5
+    store.get_or_create((abs_file, 2))  # no executions
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_json(store, config, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    summary = result["files"]["src/foo.py"]["summary"]
+    assert summary["total_lines"] == 2
+    assert summary["deliberate_coverage_pct"] == 50.0
+    assert summary["incidental_coverage_pct"] == 0.0
+
+
+def test_assert_density_calculation(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    abs_file = str(rootdir / "src" / "bar.py")
+    ld1 = store.get_or_create((abs_file, 1))
+    ld1.incidental_asserts = 4
+    ld1.deliberate_asserts = 2
+    store.get_or_create((abs_file, 2))  # no asserts
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_json(store, config, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    summary = result["files"]["src/bar.py"]["summary"]
+    assert summary["incidental_assert_density"] == 4 / 2
+    assert summary["deliberate_assert_density"] == 2 / 2
+
+
+def test_path_outside_rootdir_fallback(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    # abs_path is outside rootdir
+    outside_file = str(tmp_path / "other" / "baz.py")
+    store.get_or_create((outside_file, 10)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_json(store, config, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    # key should be the POSIX absolute path, not relative
+    expected_key = Path(outside_file).as_posix()
+    assert expected_key in result["files"]
+
+
+def test_lineno_keys_are_strings(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    abs_file = str(rootdir / "mod.py")
+    store.get_or_create((abs_file, 42)).incidental_executions = 3
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_json(store, config, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    file_lines = result["files"]["mod.py"]["lines"]
+    assert "42" in file_lines
+    # JSON keys are always strings; verify the integer key is NOT present
+    assert 42 not in file_lines
+
+
+def test_output_dir_created_if_missing(tmp_path):
+    store = SessionStore()
+    config = make_config(tmp_path)
+    out_dir = tmp_path / "nested" / "deep" / "out"
+    assert not out_dir.exists()
+    write_json(store, config, out_dir)
+    assert (out_dir / "coverage-stats.json").exists()

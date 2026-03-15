@@ -84,3 +84,21 @@ Three deferred hardening items (not blocking for MVP):
 **File:** `src/coverage_stats/profiler.py`, `src/coverage_stats/assert_counter.py`
 **Issue:** `current_test_lines` is a plain `set` written by `LineTracer._trace` and cleared by `distribute_asserts`. Not thread-safe under in-process parallelism (e.g., threaded test frameworks).
 **Context:** `sys.settrace` is per-thread; standard pytest is single-threaded. Acceptable for MVP. Revisit if threaded worker support is added.
+
+---
+
+## Reporter output warning for unknown format tokens
+
+**Source:** Review findings from json-csv-reporters adversarial review
+**File:** `src/coverage_stats/plugin.py`
+**Issue:** Format tokens other than `json`, `csv`, `html` are silently ignored. A user typo like `--coverage-stats-format=jsn` produces no output and no error.
+**Context:** Acceptable for MVP. Add a `warnings.warn` for unrecognised tokens when user-facing error messages are polished.
+
+---
+
+## Reporter dispatch when `store` is `None`
+
+**Source:** Review findings from json-csv-reporters adversarial review
+**File:** `src/coverage_stats/plugin.py`
+**Issue:** If `pytest_configure` sets `_enabled=True` but raises before assigning `plugin._store`, `pytest_sessionfinish` will pass `None` to reporters, causing `AttributeError` on `store._data`.
+**Context:** Unreachable in the intended flow. Acceptable for MVP. Add a `if self._store is None: return` guard if `CoverageStatsPlugin` is ever subclassed or instantiated outside `pytest_configure`.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 
 class CoverageStatsPlugin:
     def __init__(self) -> None:
@@ -52,6 +54,24 @@ class CoverageStatsPlugin:
         if self._tracer is not None:
             self._tracer.stop()
 
+        config = session.config
+        fmt_str = config.getoption("--coverage-stats-format") or config.getini("coverage_stats_format")
+        formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
+        out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")
+        output_dir = Path(out_str).resolve()
+
+        for fmt in formats:
+            if fmt == "json":
+                from coverage_stats.reporters.json_reporter import write_json
+
+                write_json(self._store, config, output_dir)
+            elif fmt == "csv":
+                from coverage_stats.reporters.csv_reporter import write_csv
+
+                write_csv(self._store, config, output_dir)
+            elif fmt == "html":
+                pass  # silently skip — implemented in next story
+
 
 def pytest_addoption(parser) -> None:
     parser.addoption(
@@ -60,10 +80,32 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="Enable coverage-stats plugin",
     )
+    parser.addoption(
+        "--coverage-stats-format",
+        type=str,
+        default=None,
+        help="Output formats: html,json,csv (comma-separated)",
+    )
+    parser.addoption(
+        "--coverage-stats-output",
+        type=str,
+        default=None,
+        help="Output directory for coverage-stats reports",
+    )
     parser.addini(
         "coverage_stats_source",
         help="Source directories to profile (space-separated)",
         default="",
+    )
+    parser.addini(
+        "coverage_stats_format",
+        help="Output formats: html,json,csv (comma-separated)",
+        default="",
+    )
+    parser.addini(
+        "coverage_stats_output_dir",
+        help="Output directory for coverage-stats reports",
+        default="coverage-stats-report",
     )
 
 
