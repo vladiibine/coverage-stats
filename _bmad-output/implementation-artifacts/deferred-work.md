@@ -102,3 +102,39 @@ Three deferred hardening items (not blocking for MVP):
 **File:** `src/coverage_stats/plugin.py`
 **Issue:** If `pytest_configure` sets `_enabled=True` but raises before assigning `plugin._store`, `pytest_sessionfinish` will pass `None` to reporters, causing `AttributeError` on `store._data`.
 **Context:** Unreachable in the intended flow. Acceptable for MVP. Add a `if self._store is None: return` guard if `CoverageStatsPlugin` is ever subclassed or instantiated outside `pytest_configure`.
+
+---
+
+## HTML reporter — href URL-encoding
+
+**Source:** Review findings from html-reporter adversarial review
+**Files:** `src/coverage_stats/reporters/html.py`
+**Issue:** `href` attributes in index.html link to per-file filenames using bare string interpolation. Filenames containing `#`, `?`, `&`, or spaces will produce broken hrefs.
+**Context:** Affects edge-case filenames only. Use `urllib.parse.quote(file_html_name)` in the `href` when polishing user-facing output.
+
+---
+
+## HTML reporter — per-file filename collision
+
+**Source:** Review findings from html-reporter adversarial review
+**Files:** `src/coverage_stats/reporters/html.py`
+**Issue:** Per-file HTML name is `rel_path.replace("/", "__") + ".html"`. Paths `a/b__c.py` and `a__b/c.py` both produce `a__b__c.py.html`, causing one file to overwrite the other silently.
+**Context:** Rare in practice. Use a collision-resistant scheme (e.g., hash suffix) if this becomes a user-reported issue.
+
+---
+
+## HTML reporter — abs_path_map last-writer-wins for duplicate rel_path
+
+**Source:** Review findings from html-reporter adversarial review
+**Files:** `src/coverage_stats/reporters/html.py`
+**Issue:** `_group_by_rel_path` builds `abs_path_map[rel_path] = abs_path` with no collision check. If two absolute paths map to the same relative path (e.g., symlinks), the last writer wins and source lines may be read from the wrong file.
+**Context:** Only possible with symlinks or unusual VCS setups. Acceptable for MVP.
+
+---
+
+## HTML reporter — top-level files show `"."` as folder label
+
+**Source:** Review findings from html-reporter adversarial review
+**Files:** `src/coverage_stats/reporters/html.py`
+**Issue:** `str(Path(rel_path).parent)` returns `"."` for top-level files (e.g., `conftest.py`), so the folder section header reads `"."` instead of something user-friendly like `"(root)"`.
+**Context:** Cosmetic. Replace `"."` with `"(root)"` when polishing the HTML output.

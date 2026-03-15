@@ -70,7 +70,9 @@ class CoverageStatsPlugin:
 
                 write_csv(self._store, config, output_dir)
             elif fmt == "html":
-                pass  # silently skip — implemented in next story
+                from coverage_stats.reporters.html import write_html
+
+                write_html(self._store, config, output_dir)
 
 
 def pytest_addoption(parser) -> None:
