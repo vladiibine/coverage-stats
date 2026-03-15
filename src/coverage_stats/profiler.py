@@ -13,6 +13,7 @@ class ProfilerContext:
     current_phase: str | None = None  # "setup" | "call" | "teardown"
     current_assert_count: int = 0
     source_dirs: list[str] = field(default_factory=list)
+    current_test_lines: set[tuple[str, int]] = field(default_factory=set)
 
 
 class LineTracer:
@@ -59,6 +60,7 @@ class LineTracer:
                 ld.deliberate_executions += 1
             else:
                 ld.incidental_executions += 1
+            ctx.current_test_lines.add(key)
         except Exception as exc:
             warnings.warn(f"coverage-stats: tracer error: {exc}")
         return self._trace

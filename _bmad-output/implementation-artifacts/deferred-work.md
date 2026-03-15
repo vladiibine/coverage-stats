@@ -66,3 +66,21 @@ Three deferred hardening items (not blocking for MVP):
 **File:** `src/coverage_stats/profiler.py`
 **Issue:** Calling `start()` twice overwrites `_prev_trace` with `self._trace` itself, creating a self-referential loop. `stop()` then restores `self._trace` instead of the original tracer.
 **Context:** `start()` is called once in `pytest_configure` and never again in the intended flow. Acceptable for MVP. Add a guard if `LineTracer` is ever exposed publicly.
+
+---
+
+## `distribute_asserts` — `current_test_item` None guard
+
+**Source:** Review findings from assert-counter adversarial review
+**File:** `src/coverage_stats/assert_counter.py`
+**Issue:** Inside the `if count and ctx.current_test_lines:` branch, `getattr(ctx.current_test_item, "_covers_lines", frozenset())` is called without an explicit None check. If `current_test_item` is None (abnormal call path), all asserts are silently misclassified as incidental rather than raising an error.
+**Context:** Unreachable in the intended flow — `current_test_lines` is only populated during "call" phase, which requires `current_test_item` to be set. Safe for MVP. Add an explicit guard if `distribute_asserts` is ever called from a second call site.
+
+---
+
+## `ProfilerContext.current_test_lines` thread safety
+
+**Source:** Review findings from assert-counter adversarial review
+**File:** `src/coverage_stats/profiler.py`, `src/coverage_stats/assert_counter.py`
+**Issue:** `current_test_lines` is a plain `set` written by `LineTracer._trace` and cleared by `distribute_asserts`. Not thread-safe under in-process parallelism (e.g., threaded test frameworks).
+**Context:** `sys.settrace` is per-thread; standard pytest is single-threaded. Acceptable for MVP. Revisit if threaded worker support is added.

@@ -19,6 +19,8 @@ class CoverageStatsPlugin:
         ctx = item.config._coverage_stats_ctx
         ctx.current_test_item = item
         ctx.current_phase = "setup"
+        ctx.current_test_lines.clear()
+        ctx.current_assert_count = 0
 
     def pytest_runtest_call(self, item) -> None:
         if not self._enabled:
@@ -31,14 +33,18 @@ class CoverageStatsPlugin:
             return
         ctx = item.config._coverage_stats_ctx
         ctx.current_phase = "teardown"
+        from coverage_stats.assert_counter import distribute_asserts
+        distribute_asserts(ctx, self._store)
         # Reset after teardown completes
         ctx.current_phase = None
         ctx.current_test_item = None
-        ctx.current_assert_count = 0
 
     def pytest_assertion_pass(self, item, lineno, orig, expl) -> None:
         if not self._enabled:
             return
+        from coverage_stats.assert_counter import record_assertion
+        ctx = item.config._coverage_stats_ctx
+        record_assertion(ctx)
 
     def pytest_sessionfinish(self, session, exitstatus) -> None:
         if not self._enabled:
