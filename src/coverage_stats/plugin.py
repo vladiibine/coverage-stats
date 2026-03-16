@@ -157,6 +157,12 @@ def pytest_configure(config: pytest.Config) -> None:
         config.pluginmanager.register(plugin, "coverage-stats-plugin")
         return
 
+    # pytest_assertion_pass is only called when this ini flag is True.
+    # Force it on so assert counts are recorded correctly.
+    inicache = getattr(config, "_inicache", None)
+    if isinstance(inicache, dict):
+        inicache["enable_assertion_pass_hook"] = True
+
     if _is_xdist_controller(config):
         from coverage_stats.store import SessionStore
         store = SessionStore()
