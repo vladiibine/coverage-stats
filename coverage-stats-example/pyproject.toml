@@ -1,0 +1,22 @@
+[project]
+name = "coverage-stats-example"
+version = "0.1.0"
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "coverage",
+    "pytest-cov",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# coverage_stats_source defaults to "src" — no need to set it explicitly
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true

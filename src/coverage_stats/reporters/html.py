@@ -212,9 +212,10 @@ def render_line(lineno: int, source_text: str, ld: LineData | None, executable: 
     )
 
 
-def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str, total_stmts: int) -> str:
-    deliberate_covered = sum(1 for ld in lines.values() if ld.deliberate_executions > 0)
-    incidental_covered = sum(1 for ld in lines.values() if ld.incidental_executions > 0)
+def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str,
+                    total_stmts: int, executable: set[int]) -> str:
+    deliberate_covered = sum(1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0)
+    incidental_covered = sum(1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0)
     deliberate_pct = deliberate_covered / total_stmts * 100.0 if total_stmts else 0.0
     incidental_pct = incidental_covered / total_stmts * 100.0 if total_stmts else 0.0
     escaped_path = _html.escape(rel_path)
@@ -362,7 +363,7 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
             executable = get_executable_lines(abs_path)
             total_stmts = len(executable) if executable else len(lines)
             _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name)
-            file_rows.append(render_file_row(rel_path, lines, file_html_name, total_stmts))
+            file_rows.append(render_file_row(rel_path, lines, file_html_name, total_stmts, executable))
         folder_sections.append(render_folder_section(folder, "".join(file_rows)))
 
     (output_dir / "index.html").write_text(

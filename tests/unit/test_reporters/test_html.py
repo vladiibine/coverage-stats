@@ -317,14 +317,14 @@ def test_render_line_escapes_html():
 def test_render_file_row_contains_link():
     ld = _make_ld(de=1)
     lines = {1: ld, 2: _make_ld()}
-    result = render_file_row("src/foo.py", lines, "src__foo.py.html", 2)
+    result = render_file_row("src/foo.py", lines, "src__foo.py.html", 2, executable={1, 2})
     assert 'href="src__foo.py.html"' in result
     assert "src/foo.py" in result
 
 
 def test_render_file_row_pct_calculation():
     lines = {1: _make_ld(de=1), 2: _make_ld(), 3: _make_ld()}
-    result = render_file_row("x.py", lines, "x.py.html", 3)
+    result = render_file_row("x.py", lines, "x.py.html", 3, executable={1, 2, 3})
     # 1/3 deliberate = 33.3%
     assert "33.3%" in result
 

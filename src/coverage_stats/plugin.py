@@ -233,8 +233,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addini(
         "coverage_stats_source",
-        help="Source directories to profile (space-separated)",
-        default="",
+        help="Source directories to profile (space-separated). Defaults to 'src'.",
+        default="src",
     )
     parser.addini(
         "coverage_stats_format",
@@ -277,11 +277,15 @@ def pytest_configure(config: pytest.Config) -> None:
     from coverage_stats.store import SessionStore
 
     raw_source = config.getini("coverage_stats_source")
-    source_dirs = [
-        str(__import__("pathlib").Path(d).resolve())
+    rootdir = Path(str(config.rootdir))
+    candidate_dirs = [
+        (rootdir / d).resolve() if not Path(d).is_absolute() else Path(d).resolve()
         for d in (raw_source.split() if isinstance(raw_source, str) else raw_source)
         if d
     ]
+    # Only include directories that actually exist; if none exist fall back to
+    # the default "profile everything non-stdlib" behaviour (empty list).
+    source_dirs = [str(p) for p in candidate_dirs if p.is_dir()]
 
     ctx = ProfilerContext(source_dirs=source_dirs)
     store = SessionStore()

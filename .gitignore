@@ -12,3 +12,5 @@ htmlcov_stats/
 .DS_Store
 .idea/
 _bmad/
+html-cov/
+vwh_*
