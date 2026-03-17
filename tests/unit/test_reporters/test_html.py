@@ -200,15 +200,15 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
         assert 'class="incidental"' not in row
 
 
-def test_index_line_count_reflects_source_file_not_just_covered_lines(tmp_path):
-    """The line count in the index summary must equal the source file's total lines."""
+def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
+    """The stmt count in the index summary must equal the file's executable statements."""
     rootdir = tmp_path / "project"
     rootdir.mkdir()
     src_file = rootdir / "mod.py"
-    src_file.write_text("\n".join(f"line{i}" for i in range(1, 11)))  # 10 lines
+    src_file.write_text("\n".join(f"x{i} = {i}" for i in range(1, 11)))  # 10 assignment stmts
 
     store = SessionStore()
-    # Only 2 of 10 lines are covered
+    # Only 2 of 10 statements are covered
     store.get_or_create((str(src_file), 1)).deliberate_executions = 1
     store.get_or_create((str(src_file), 5)).incidental_executions = 1
 
@@ -217,7 +217,7 @@ def test_index_line_count_reflects_source_file_not_just_covered_lines(tmp_path):
     write_html(store, config, out_dir)
     content = (out_dir / "index.html").read_text()
 
-    # The index must show 10 (total source lines), not 2 (tracked lines)
+    # The index must show 10 (total executable stmts), not 2 (tracked stmts)
     assert "<td>10</td>" in content
     assert "<td>2</td>" not in content
 
@@ -278,27 +278,38 @@ def _make_ld(ie=0, de=0, ia=0, da=0):
 
 def test_render_line_deliberate_class():
     ld = _make_ld(de=1)
-    result = render_line(1, "x = 1", ld)
+    result = render_line(1, "x = 1", ld, executable=True)
     assert 'class="deliberate"' in result
     assert "<td>1</td>" in result
 
 
 def test_render_line_incidental_class():
     ld = _make_ld(ie=2)
-    result = render_line(7, "pass", ld)
+    result = render_line(7, "pass", ld, executable=True)
     assert 'class="incidental"' in result
 
 
-def test_render_line_no_class():
+def test_render_line_missed_executable_gets_missed_class():
     ld = _make_ld()
-    result = render_line(3, "import os", ld)
+    result = render_line(3, "import os", ld, executable=True)
+    assert 'class="missed"' in result
+
+
+def test_render_line_non_executable_no_class():
+    ld = _make_ld(de=1)
+    result = render_line(3, "# comment", ld, executable=False)
     assert 'class=' not in result
     assert "<tr>" in result
 
 
+def test_render_line_missed_class():
+    result = render_line(5, "x = 1", None, executable=True)
+    assert 'class="missed"' in result
+
+
 def test_render_line_escapes_html():
     ld = _make_ld()
-    result = render_line(1, "<script>alert(1)</script>", ld)
+    result = render_line(1, "<script>alert(1)</script>", ld, executable=True)
     assert "<script>" not in result
     assert "&lt;script&gt;" in result
 
@@ -333,8 +344,9 @@ def test_render_index_page_full_html():
 
 
 def test_render_file_page_full_html():
-    result = render_file_page("src/foo.py", "<tr><td>42</td></tr>")
+    result = render_file_page("src/foo.py", "<div>stats</div>", "<tr><td>42</td></tr>")
     assert "<!DOCTYPE html>" in result
     assert "src/foo.py" in result
     assert "42" in result
+    assert "stats" in result
     assert "<style>" in result

@@ -56,7 +56,7 @@ def test_summary_calculations(tmp_path):
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
     summary = result["files"]["src/foo.py"]["summary"]
-    assert summary["total_lines"] == 2
+    assert summary["total_stmts"] == 2
     assert summary["deliberate_coverage_pct"] == 50.0
     assert summary["incidental_coverage_pct"] == 0.0
 

@@ -7,6 +7,7 @@ from typing import TypedDict
 
 import pytest
 
+from coverage_stats.executable_lines import get_executable_lines
 from coverage_stats.store import LineData, SessionStore
 
 
@@ -18,7 +19,7 @@ class _LineStats(TypedDict):
 
 
 class _FileSummary(TypedDict):
-    total_lines: int
+    total_stmts: int
     incidental_coverage_pct: float
     deliberate_coverage_pct: float
     incidental_assert_density: float
@@ -43,18 +44,29 @@ def write_json(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
             rel = Path(abs_path).as_posix()
         files[rel][lineno] = ld
 
+    # Build abs_path map for executable-line analysis
+    abs_path_map: dict[str, str] = {}
+    for (abs_path, _lineno) in store._data.keys():
+        try:
+            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
+        except ValueError:
+            rel = Path(abs_path).as_posix()
+        abs_path_map[rel] = abs_path
+
     result: _JsonResult = {"files": {}}
     for rel_path, lines in files.items():
-        total_lines = len(lines)
+        abs_path = abs_path_map.get(rel_path, rel_path)
+        executable = get_executable_lines(abs_path)
+        total_stmts = len(executable) if executable else len(lines)
         incidental_covered = sum(1 for ld in lines.values() if ld.incidental_executions > 0)
         deliberate_covered = sum(1 for ld in lines.values() if ld.deliberate_executions > 0)
         total_incidental_asserts = sum(ld.incidental_asserts for ld in lines.values())
         total_deliberate_asserts = sum(ld.deliberate_asserts for ld in lines.values())
 
-        incidental_coverage_pct = incidental_covered / total_lines * 100.0 if total_lines else 0.0
-        deliberate_coverage_pct = deliberate_covered / total_lines * 100.0 if total_lines else 0.0
-        incidental_assert_density = total_incidental_asserts / total_lines if total_lines else 0.0
-        deliberate_assert_density = total_deliberate_asserts / total_lines if total_lines else 0.0
+        incidental_coverage_pct = incidental_covered / total_stmts * 100.0 if total_stmts else 0.0
+        deliberate_coverage_pct = deliberate_covered / total_stmts * 100.0 if total_stmts else 0.0
+        incidental_assert_density = total_incidental_asserts / total_stmts if total_stmts else 0.0
+        deliberate_assert_density = total_deliberate_asserts / total_stmts if total_stmts else 0.0
 
         lines_dict: dict[str, _LineStats] = {
             str(lineno): {
@@ -69,7 +81,7 @@ def write_json(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
         result["files"][rel_path] = {
             "lines": lines_dict,
             "summary": {
-                "total_lines": total_lines,
+                "total_stmts": total_stmts,
                 "incidental_coverage_pct": incidental_coverage_pct,
                 "deliberate_coverage_pct": deliberate_coverage_pct,
                 "incidental_assert_density": incidental_assert_density,

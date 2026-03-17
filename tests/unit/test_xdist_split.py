@@ -37,6 +37,7 @@ def _config_controller():
     """Config that looks like an xdist controller (no workerinput, xdist registered)."""
     return SimpleNamespace(
         pluginmanager=_make_plugin_manager(has_xdist=True),
+        option=SimpleNamespace(dist="load"),
         # Note: real controller configs do NOT have workeroutput — only workers do
     )
 
@@ -224,6 +225,7 @@ def test_controller_configure_creates_store_but_no_tracer():
 
     config = SimpleNamespace(
         pluginmanager=FakePluginManager(),
+        option=SimpleNamespace(dist="load"),
         # No workeroutput — real controller configs don't have this attribute
         _coverage_stats_ctx=None,
     )

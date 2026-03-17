@@ -6,12 +6,27 @@ from typing import TYPE_CHECKING, Protocol
 import pytest
 
 if TYPE_CHECKING:
-    from coverage_stats.profiler import LineTracer
+    from coverage_stats.profiler import LineTracer, ProfilerContext
     from coverage_stats.store import SessionStore
 
 
 class _XdistWorkerNode(Protocol):
     workeroutput: dict[str, str]
+
+
+def _flush_pre_test_lines(ctx: ProfilerContext, store: SessionStore) -> None:
+    """Copy pre-test lines into the store as incidental (if not already present).
+
+    Lines executed before any test phase (module imports, module-level code,
+    bodies of functions called at module level) are recorded in
+    ``ctx.pre_test_lines`` by the tracer.  This drains that set into the store
+    so reporters see them as covered.  Existing store entries (from call-phase
+    tracing) are not overwritten.
+    """
+    for key in ctx.pre_test_lines:
+        if key not in store._data:
+            store.get_or_create(key).incidental_executions = 1
+    ctx.pre_test_lines.clear()
 
 
 def _is_xdist_worker(config: pytest.Config) -> bool:
@@ -169,12 +184,18 @@ class CoverageStatsPlugin:
             if self._tracer is not None:
                 self._tracer.stop()
             assert self._store is not None
+            ctx = getattr(config, "_coverage_stats_ctx", None)
+            if ctx is not None:
+                _flush_pre_test_lines(ctx, self._store)
             config.workeroutput["coverage_stats_data"] = json.dumps(self._store.to_dict())  # type: ignore[attr-defined]
             return
         # controller or single-process: call reporters
         if self._tracer is not None:
             self._tracer.stop()
         assert self._store is not None
+        ctx = getattr(config, "_coverage_stats_ctx", None)
+        if ctx is not None:
+            _flush_pre_test_lines(ctx, self._store)
         fmt_str = config.getoption("--coverage-stats-format") or config.getini("coverage_stats_format")
         formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
         out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")

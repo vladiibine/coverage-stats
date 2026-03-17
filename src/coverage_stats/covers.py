@@ -115,7 +115,12 @@ def _get_callable_lines(target: _InspectTarget, ref: object, item: pytest.Functi
         return set()  # unreachable; pytest.fail always raises
     abs_path = str(Path(src_file).resolve())
     source_lines, start_lineno = inspect.getsourcelines(target)
-    return {(abs_path, start_lineno + i) for i in range(len(source_lines))}
+    from coverage_stats.executable_lines import get_executable_lines
+    executable = get_executable_lines(abs_path)
+    all_linenos = {start_lineno + i for i in range(len(source_lines))}
+    # Keep only executable statements; fall back to all lines if analysis failed
+    filtered = all_linenos & executable if executable else all_linenos
+    return {(abs_path, lineno) for lineno in filtered}
 
 
 def _get_class_lines(target: type[object], ref: object, item: pytest.Function) -> set[tuple[str, int]]:

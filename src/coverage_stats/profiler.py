@@ -23,6 +23,10 @@ class ProfilerContext:
     current_assert_count: int = 0
     source_dirs: list[str] = field(default_factory=list)
     current_test_lines: set[tuple[str, int]] = field(default_factory=set)
+    # Lines executed before any test phase (module imports, module-level code).
+    # Populated when current_phase is None so that module-level statements
+    # (including bodies of functions called at import time) are recorded.
+    pre_test_lines: set[tuple[str, int]] = field(default_factory=set)
 
 
 class LineTracer:
@@ -80,11 +84,11 @@ class LineTracer:
                     current_prev = current_prev(frame, event, arg)
                 if event == "line":
                     ctx = self._context
-                    if ctx.current_phase == "call" and ctx.current_test_item is not None:
-                        filename = str(Path(frame.f_code.co_filename).resolve())
-                        if self._in_scope(filename):
-                            lineno = frame.f_lineno
-                            key = (filename, lineno)
+                    filename = str(Path(frame.f_code.co_filename).resolve())
+                    if self._in_scope(filename):
+                        lineno = frame.f_lineno
+                        key = (filename, lineno)
+                        if ctx.current_phase == "call" and ctx.current_test_item is not None:
                             ld = self._store.get_or_create(key)
                             covers_lines: frozenset[tuple[str, int]] = getattr(
                                 ctx.current_test_item, "_covers_lines", frozenset()
@@ -94,6 +98,8 @@ class LineTracer:
                             else:
                                 ld.incidental_executions += 1
                             ctx.current_test_lines.add(key)
+                        elif ctx.current_phase is None:
+                            ctx.pre_test_lines.add(key)
             except Exception as exc:
                 warnings.warn(f"coverage-stats: tracer error: {exc}")
             return local
