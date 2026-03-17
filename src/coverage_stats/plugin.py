@@ -23,16 +23,85 @@ def _is_xdist_controller(config: pytest.Config) -> bool:
 
 
 class CoverageStatsPlugin:
+    """Central pytest plugin that wires together line tracing, assert counting, and reporting.
+
+    ## 1. How it plugs into pytest
+
+    The plugin is registered as a pytest entry point (``pytest11``) in ``pyproject.toml``,
+    so pytest loads it automatically whenever the package is installed.  It only activates
+    when the ``--coverage-stats`` flag is passed; otherwise all hooks return immediately.
+
+    ``pytest_configure`` (a module-level hook below the class) instantiates the plugin,
+    performs role-specific setup (single-process, xdist worker, or xdist controller), and
+    registers the instance with pytest's plugin manager so its hooks are called.
+
+    ## 2. How it collects stats
+
+    Line-level execution is recorded by ``LineTracer`` (``profiler.py``), a ``sys.settrace``
+    callback that fires on every ``line`` event while a test's ``call`` phase is active.
+    The tracer runs only on files under the configured source directories.
+
+    Assertion counts are collected via ``pytest_assertion_pass``, which pytest calls for
+    every passing assertion when ``enable_assertion_pass_hook`` is ``True``.  The plugin
+    forces this ini flag on in ``pytest_configure`` so it does not need to be set manually.
+    Each call increments ``ProfilerContext.current_assert_count`` for the active test.
+
+    The two-category distinction (deliberate vs. incidental) comes from ``@covers``:
+    if a test is decorated with ``@covers(some_function)``, lines inside ``some_function``
+    are marked deliberate; all other traced lines are incidental.  This metadata is resolved
+    by ``covers.resolve_covers`` during ``pytest_runtest_setup`` and stored on the item as
+    ``item._covers_lines`` (a ``frozenset`` of ``(abs_path, lineno)`` pairs).
+
+    ## 3. How it stores stats
+
+    Each traced ``(abs_path, lineno)`` pair maps to a ``LineData`` record in a
+    ``SessionStore`` (``store.py``).  ``LineData`` holds four integers:
+    ``incidental_executions``, ``deliberate_executions``, ``incidental_asserts``,
+    and ``deliberate_asserts``.
+
+    Assert counts are not recorded per-line as assertions fire; instead they are
+    distributed at teardown by ``assert_counter.distribute_asserts``, which spreads
+    ``current_assert_count`` across every line that was executed during that test's
+    ``call`` phase (stored in ``ProfilerContext.current_test_lines``).
+
+    ## 4. How it is used by its clients
+
+    Test authors interact with the plugin through two surfaces:
+
+    - ``@covers(*refs)`` decorator (``covers.py``) — marks which functions or classes a
+      test deliberately targets.  Refs can be live objects or dotted strings resolved
+      lazily at setup time.
+    - CLI / ini options — ``--coverage-stats`` to enable, ``--coverage-stats-format``
+      (``html``, ``json``, ``csv``, comma-separated) and ``--coverage-stats-output`` for
+      the output directory.  All options have ``coverage_stats_*`` ini equivalents.
+
+    ## 5. How it interacts with the rest of the project
+
+    - ``profiler.LineTracer`` / ``ProfilerContext`` — the tracer is started in
+      ``pytest_configure`` and stopped in ``pytest_sessionfinish``.  ``ProfilerContext``
+      is attached to ``config._coverage_stats_ctx`` so every hook can reach it via the
+      item's config without needing a direct reference to the plugin instance.
+    - ``store.SessionStore`` — owned by the plugin instance.  On xdist workers it is
+      populated locally; ``pytest_sessionfinish`` serialises it to JSON in
+      ``config.workeroutput``.  The controller receives each worker's payload in
+      ``pytest_testnodedown`` and merges it into its own store via ``SessionStore.merge``.
+    - ``reporters`` (``html``, ``json_reporter``, ``csv_reporter``) — called from
+      ``pytest_sessionfinish`` on the controller / single-process node after the tracer
+      has stopped, passing the fully-merged store and the pytest config.
+    """
+
     def __init__(self) -> None:
         self._enabled: bool = False
         self._store: SessionStore | None = None
         self._tracer: LineTracer | None = None
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
+        """Called after collection is finished."""
         if not self._enabled:
             return
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
+        """Resolve @covers metadata and reset per-test tracking state."""
         if not self._enabled:
             return
         if isinstance(item, pytest.Function):
@@ -45,12 +114,14 @@ class CoverageStatsPlugin:
         ctx.current_assert_count = 0
 
     def pytest_runtest_call(self, item: pytest.Item) -> None:
+        """Advance the phase to 'call' so the tracer records lines during test execution."""
         if not self._enabled:
             return
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
         ctx.current_phase = "call"
 
     def pytest_runtest_teardown(self, item: pytest.Item, nextitem: pytest.Item | None) -> None:
+        """Distribute accumulated assert counts to covered lines, then reset context."""
         if not self._enabled:
             return
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
@@ -63,6 +134,7 @@ class CoverageStatsPlugin:
         ctx.current_test_item = None
 
     def pytest_assertion_pass(self, item: pytest.Item, lineno: int, orig: str, expl: str) -> None:
+        """Increment the assert counter each time an assertion passes during 'call'."""
         if not self._enabled:
             return
         from coverage_stats.assert_counter import record_assertion
@@ -71,6 +143,7 @@ class CoverageStatsPlugin:
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: _XdistWorkerNode, error: BaseException | None) -> None:
+        """Merge coverage data from an xdist worker into the controller's store."""
         if not self._enabled:
             return
         import json
@@ -82,6 +155,7 @@ class CoverageStatsPlugin:
             self._store.merge(worker_store)
 
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
+        """Stop tracing and write reports; on xdist workers, serialize data for the controller."""
         if not self._enabled:
             return
         config = session.config
