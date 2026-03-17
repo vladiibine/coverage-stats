@@ -19,7 +19,12 @@ def _is_xdist_worker(config: pytest.Config) -> bool:
 
 
 def _is_xdist_controller(config: pytest.Config) -> bool:
-    return not _is_xdist_worker(config) and config.pluginmanager.hasplugin("xdist")
+    if _is_xdist_worker(config):
+        return False
+    if not config.pluginmanager.hasplugin("xdist"):
+        return False
+    # xdist installed but not active (no -n flag) → treat as single-process
+    return getattr(config.option, "dist", "no") != "no"
 
 
 class CoverageStatsPlugin:
