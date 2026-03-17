@@ -148,11 +148,10 @@ def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
     return result
 
 
-def render_file_stats(total_stmts: int, covered: int, missed_linenos: list[int],
+def render_file_stats(total_stmts: int, covered: int,
                       deliberate_cnt: int, deliberate_pct: float, incidental_cnt: int, incidental_pct: float,
                       partial_cnt: int = 0) -> str:
     missed = total_stmts - covered
-    missed_str = _missed_ranges(missed_linenos)
     partial_cell = (
         f'<div class="stat"><div class="stat-value" style="color:#e65100">{partial_cnt}</div>'
         f'<div class="stat-label">partial</div></div>'
@@ -323,10 +322,6 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
         1 for ln in executable
         if ln in lines and (lines[ln].deliberate_executions > 0 or lines[ln].incidental_executions > 0)
     )
-    missed_linenos = sorted(
-        ln for ln in executable
-        if ln not in lines or (lines[ln].deliberate_executions == 0 and lines[ln].incidental_executions == 0)
-    )
     deliberate_covered = sum(1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0)
     deliberate_pct = deliberate_covered / total_stmts * 100.0 if total_stmts else 0.0
     incidental_covered = sum(1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0)
@@ -334,7 +329,7 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
     partial_branches = _get_partial_branches(abs_path, lines)
     partial_cnt = len(partial_branches & executable)
 
-    stats_html = render_file_stats(total_stmts, covered_stmts, missed_linenos, deliberate_covered, deliberate_pct, incidental_covered, incidental_pct, partial_cnt)
+    stats_html = render_file_stats(total_stmts, covered_stmts, deliberate_covered, deliberate_pct, incidental_covered, incidental_pct, partial_cnt)
 
     rows = []
     for lineno in all_linenos:
