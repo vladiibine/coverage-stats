@@ -47,29 +47,55 @@ class LineTracer:
         prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
         return "site-packages" not in filename and not filename.startswith(prefix)
 
-    def _trace(self, frame: types.FrameType, event: str, arg: Any) -> _TraceFunc | None:
+    def _trace(self, frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
+        """Global trace function, called by Python on every *call* event.
+
+        Forwards the call to the previous global tracer (e.g. coverage.py) and
+        captures its return value — the local tracer coverage wants installed for
+        this frame.  Returns a per-frame closure that chains both tracers for all
+        subsequent events in that frame.
+        """
+        prev_local: _TraceFunc | None = None
         try:
             if self._prev_trace is not None:
-                self._prev_trace(frame, event, arg)
-            if event == "call":
-                return self._trace
-            if event != "line":
-                return None
-            ctx = self._context
-            if ctx.current_phase != "call" or ctx.current_test_item is None:
-                return None
-            filename = str(Path(frame.f_code.co_filename).resolve())
-            if not self._in_scope(filename):
-                return None
-            lineno = frame.f_lineno
-            key = (filename, lineno)
-            ld = self._store.get_or_create(key)
-            covers_lines: frozenset[tuple[str, int]] = getattr(ctx.current_test_item, "_covers_lines", frozenset())
-            if key in covers_lines:
-                ld.deliberate_executions += 1
-            else:
-                ld.incidental_executions += 1
-            ctx.current_test_lines.add(key)
+                prev_local = self._prev_trace(frame, event, arg)
         except Exception as exc:
             warnings.warn(f"coverage-stats: tracer error: {exc}")
-        return self._trace
+        return self._make_local_trace(prev_local)
+
+    def _make_local_trace(self, prev_local: _TraceFunc | None) -> _TraceFunc:
+        """Return a per-frame local trace function that chains prev_local and our logic.
+
+        ``prev_local`` is whatever the previous global tracer (e.g. coverage.py)
+        returned for this frame's *call* event — its own per-frame local tracer.
+        We call it first on every event and track its evolving return value so that
+        coverage.py can change or cancel its local tracer mid-frame if it needs to.
+        """
+        current_prev = prev_local
+
+        def local(frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
+            nonlocal current_prev
+            try:
+                if current_prev is not None:
+                    current_prev = current_prev(frame, event, arg)
+                if event == "line":
+                    ctx = self._context
+                    if ctx.current_phase == "call" and ctx.current_test_item is not None:
+                        filename = str(Path(frame.f_code.co_filename).resolve())
+                        if self._in_scope(filename):
+                            lineno = frame.f_lineno
+                            key = (filename, lineno)
+                            ld = self._store.get_or_create(key)
+                            covers_lines: frozenset[tuple[str, int]] = getattr(
+                                ctx.current_test_item, "_covers_lines", frozenset()
+                            )
+                            if key in covers_lines:
+                                ld.deliberate_executions += 1
+                            else:
+                                ld.incidental_executions += 1
+                            ctx.current_test_lines.add(key)
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: tracer error: {exc}")
+            return local
+
+        return local

@@ -60,13 +60,13 @@ def test_stop_restores_previous_trace():
     assert sys.gettrace() is original
 
 
-def test_trace_returns_self_on_call_event():
+def test_trace_returns_local_closure_on_call_event():
     tracer, ctx, store = make_tracer()
     frame = make_frame(THIS_FILE, 1)
     result = tracer._trace(frame, "call", None)
-    # Bound methods don't have stable identity; compare via __func__ and __self__
-    assert result.__func__ is tracer._trace.__func__
-    assert result.__self__ is tracer
+    # _trace is now a global-only tracer; it returns a per-frame closure, not itself
+    assert callable(result)
+    assert result is not tracer._trace
 
 
 def test_trace_accumulates_deliberate_execution():
@@ -83,7 +83,8 @@ def test_trace_accumulates_deliberate_execution():
     item = types.SimpleNamespace(_covers_lines=frozenset([key]))
     ctx.current_test_item = item
 
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
 
     ld = store.get_or_create(key)
     assert ld.deliberate_executions == 1
@@ -103,7 +104,8 @@ def test_trace_accumulates_incidental_execution():
     item = types.SimpleNamespace(_covers_lines=frozenset())
     ctx.current_test_item = item
 
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
 
     key = (THIS_FILE, 42)
     ld = store.get_or_create(key)
@@ -114,14 +116,16 @@ def test_trace_accumulates_incidental_execution():
 def test_trace_skips_during_setup_phase():
     tracer, ctx, store = make_tracer(phase="setup")
     frame = make_frame(THIS_FILE, 10)
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
     assert store._data == {}
 
 
 def test_trace_skips_during_teardown_phase():
     tracer, ctx, store = make_tracer(phase="teardown")
     frame = make_frame(THIS_FILE, 10)
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
     assert store._data == {}
 
 
@@ -134,7 +138,8 @@ def test_trace_skips_when_no_test_item():
     store = SessionStore()
     tracer = LineTracer(ctx, store)
     frame = make_frame(THIS_FILE, 10)
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
     assert store._data == {}
 
 
@@ -149,7 +154,8 @@ def test_trace_skips_file_outside_source_dirs():
     ctx.current_test_item = item
 
     frame = make_frame("/my/src/foo.py", 5)
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
     assert store._data == {}
 
 
@@ -168,16 +174,18 @@ def test_trace_catches_exception_and_warns():
     ctx.current_test_item = item
 
     frame = make_frame(THIS_FILE, 99)
+    local = tracer._trace(frame, "call", None)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        tracer._trace(frame, "line", None)
+        local(frame, "line", None)
 
     assert len(caught) == 1
     assert "coverage-stats: tracer error" in str(caught[0].message)
 
 
-def test_trace_chains_previous_trace():
+def test_trace_forwards_call_to_prev_global_tracer():
+    """The previous global tracer must be called with the 'call' event."""
     ctx = ProfilerContext(
         source_dirs=[str(Path(__file__).resolve().parent)],
         current_phase="call",
@@ -185,20 +193,48 @@ def test_trace_chains_previous_trace():
     store = SessionStore()
     tracer = LineTracer(ctx, store)
 
-    called = []
+    global_called = []
 
     def prev_trace(frame, event, arg):
-        called.append(event)
-        return None
+        global_called.append(event)
+        return None  # no local tracer
 
     tracer._prev_trace = prev_trace
+    frame = make_frame(THIS_FILE, 5)
+    tracer._trace(frame, "call", None)
 
+    assert global_called == ["call"]
+
+
+def test_trace_uses_local_tracer_returned_by_prev_global_tracer():
+    """If the previous global tracer returns a local tracer, that local must be
+    called on subsequent line events — not the global tracer itself."""
+    ctx = ProfilerContext(
+        source_dirs=[str(Path(__file__).resolve().parent)],
+        current_phase="call",
+    )
+    store = SessionStore()
+    tracer = LineTracer(ctx, store)
+
+    local_events: list[str] = []
+    global_events: list[str] = []
+
+    def prev_local(frame, event, arg):
+        local_events.append(event)
+        return prev_local
+
+    def prev_trace(frame, event, arg):
+        global_events.append(event)
+        return prev_local  # return a distinct local tracer
+
+    tracer._prev_trace = prev_trace
     item = types.SimpleNamespace(_covers_lines=frozenset())
     ctx.current_test_item = item
 
     frame = make_frame(THIS_FILE, 5)
-    tracer._trace(frame, "call", None)
-    tracer._trace(frame, "line", None)
+    local = tracer._trace(frame, "call", None)
+    local(frame, "line", None)
 
-    assert "call" in called
-    assert "line" in called
+    assert global_events == ["call"]       # global only sees call
+    assert "line" in local_events          # local sees line, not global
+    assert "line" not in global_events
