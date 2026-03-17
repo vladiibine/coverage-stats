@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import html as _html
 from collections import defaultdict
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 import pytest
 
@@ -46,14 +47,22 @@ td.branch-warn {
     font-weight: bold;
     white-space: nowrap;
 }
-details {
-    margin-bottom: 1rem;
-}
-summary {
-    cursor: pointer;
-    font-weight: bold;
-    padding: 0.25rem 0.5rem;
+tr.folder-row {
     background: #e8e8e8;
+    cursor: pointer;
+    user-select: none;
+}
+tr.folder-row:hover {
+    background: #d8d8d8;
+}
+tr.folder-row td:first-child {
+    font-weight: bold;
+}
+.toggle {
+    display: inline-block;
+    width: 1em;
+    text-align: center;
+    font-style: normal;
 }
 a {
     color: #1565c0;
@@ -96,6 +105,126 @@ a {
     word-break: break-all;
 }
 """
+
+
+_JS = """
+function toggleFolder(id) {
+    var row = document.getElementById(id);
+    var toggle = row.querySelector('.toggle');
+    var opening = toggle.textContent === '\u25b6';
+    toggle.textContent = opening ? '\u25bc' : '\u25b6';
+    var children = document.querySelectorAll('[data-parent="' + id + '"]');
+    children.forEach(function(child) {
+        child.style.display = opening ? '' : 'none';
+        if (!opening) {
+            var cid = child.id;
+            if (cid) {
+                var ct = child.querySelector('.toggle');
+                if (ct && ct.textContent === '\u25bc') {
+                    ct.textContent = '\u25b6';
+                    hideDescendants(cid);
+                }
+            }
+        }
+    });
+}
+function hideDescendants(id) {
+    document.querySelectorAll('[data-parent="' + id + '"]').forEach(function(row) {
+        row.style.display = 'none';
+        if (row.id) hideDescendants(row.id);
+    });
+}
+"""
+
+
+@dataclass
+class _FileEntry:
+    rel_path: str
+    file_html_name: str
+    total_stmts: int
+    deliberate_covered: int
+    incidental_covered: int
+
+
+@dataclass
+class _FolderNode:
+    path: str  # e.g. "src/payments/billing", "" for the virtual root
+    subfolders: dict[str, "_FolderNode"] = dc_field(default_factory=dict)
+    files: list[_FileEntry] = dc_field(default_factory=list)
+
+    def agg_total_stmts(self) -> int:
+        return sum(f.total_stmts for f in self.files) + sum(
+            s.agg_total_stmts() for s in self.subfolders.values()
+        )
+
+    def agg_deliberate(self) -> int:
+        return sum(f.deliberate_covered for f in self.files) + sum(
+            s.agg_deliberate() for s in self.subfolders.values()
+        )
+
+    def agg_incidental(self) -> int:
+        return sum(f.incidental_covered for f in self.files) + sum(
+            s.agg_incidental() for s in self.subfolders.values()
+        )
+
+
+def _build_file_tree(entries: list[_FileEntry]) -> _FolderNode:
+    root = _FolderNode(path="")
+    for entry in entries:
+        parts = entry.rel_path.split("/")
+        node = root
+        for part in parts[:-1]:
+            if part not in node.subfolders:
+                parent_path = f"{node.path}/{part}" if node.path else part
+                node.subfolders[part] = _FolderNode(path=parent_path)
+            node = node.subfolders[part]
+        node.files.append(entry)
+    return root
+
+
+def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str) -> list[str]:
+    """DFS traversal: emit a folder row then its children (subfolders, then files)."""
+    rows: list[str] = []
+    parent_attr = f' data-parent="{parent_id}"' if parent_id else ""
+    folder_indent = depth * 24 + 4
+    file_indent = depth * 24 + 28
+
+    for name in sorted(node.subfolders):
+        sub = node.subfolders[name]
+        fid = "f-" + sub.path.replace("/", "-").replace(".", "_")
+        total = sub.agg_total_stmts()
+        delib = sub.agg_deliberate()
+        incid = sub.agg_incidental()
+        delib_pct = delib / total * 100.0 if total else 0.0
+        incid_pct = incid / total * 100.0 if total else 0.0
+        rows.append(
+            f'<tr id="{fid}" class="folder-row"{parent_attr}'
+            f' onclick="toggleFolder(\'{fid}\')">'
+            f'<td style="padding-left:{folder_indent}px">'
+            f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
+            f'<td>{total}</td>'
+            f'<td>{delib_pct:.1f}%</td>'
+            f'<td>{incid_pct:.1f}%</td>'
+            f'</tr>'
+        )
+        rows.extend(_render_tree_rows(sub, depth + 1, fid))
+
+    for entry in sorted(node.files, key=lambda f: f.rel_path):
+        filename = entry.rel_path.split("/")[-1]
+        total = entry.total_stmts
+        delib_pct = entry.deliberate_covered / total * 100.0 if total else 0.0
+        incid_pct = entry.incidental_covered / total * 100.0 if total else 0.0
+        rows.append(
+            f'<tr{parent_attr}>'
+            f'<td style="padding-left:{file_indent}px">'
+            f'<a href="{_html.escape(entry.file_html_name)}">{_html.escape(filename)}</a></td>'
+            f'<td>{total}</td>'
+            f'<td>{delib_pct:.1f}%</td>'
+            f'<td>{incid_pct:.1f}%</td>'
+            f'</tr>'
+        )
+
+    return rows
 
 
 def _missed_ranges(missed: list[int]) -> str:
@@ -223,40 +352,7 @@ def render_line(lineno: int, source_text: str, ld: LineData | None, executable: 
     )
 
 
-def render_file_row(rel_path: str, lines: dict[int, LineData], file_html_name: str,
-                    total_stmts: int, executable: set[int]) -> str:
-    deliberate_covered = sum(1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0)
-    incidental_covered = sum(1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0)
-    deliberate_pct = deliberate_covered / total_stmts * 100.0 if total_stmts else 0.0
-    incidental_pct = incidental_covered / total_stmts * 100.0 if total_stmts else 0.0
-    escaped_path = _html.escape(rel_path)
-    escaped_name = _html.escape(file_html_name)
-    return (
-        f'<tr>'
-        f'<td><a href="{escaped_name}">{escaped_path}</a></td>'
-        f'<td>{total_stmts}</td>'
-        f'<td>{deliberate_pct:.1f}%</td>'
-        f'<td>{incidental_pct:.1f}%</td>'
-        f'</tr>'
-    )
-
-
-def render_folder_section(folder_name: str, file_rows_html: str) -> str:
-    escaped_folder = _html.escape(folder_name)
-    return (
-        f'<details open>'
-        f'<summary>{escaped_folder}</summary>'
-        f'<table>'
-        f'<thead><tr>'
-        f'<th>File</th><th>Stmts</th><th>Deliberate %</th><th>Incidental %</th>'
-        f'</tr></thead>'
-        f'<tbody>{file_rows_html}</tbody>'
-        f'</table>'
-        f'</details>'
-    )
-
-
-def render_index_page(folder_sections_html: str) -> str:
+def render_index_page(rows_html: str) -> str:
     return (
         f'<!DOCTYPE html>'
         f'<html lang="en">'
@@ -264,10 +360,16 @@ def render_index_page(folder_sections_html: str) -> str:
         f'<meta charset="utf-8">'
         f'<title>Coverage Stats</title>'
         f'<style>{_CSS}</style>'
+        f'<script>{_JS}</script>'
         f'</head>'
         f'<body>'
         f'<h1>Coverage Stats</h1>'
-        f'{folder_sections_html}'
+        f'<table>'
+        f'<thead><tr>'
+        f'<th>File</th><th>Stmts</th><th>Deliberate %</th><th>Incidental %</th>'
+        f'</tr></thead>'
+        f'<tbody>{rows_html}</tbody>'
+        f'</table>'
         f'</body>'
         f'</html>'
     )
@@ -311,13 +413,6 @@ def _group_by_rel_path(store: SessionStore, config: pytest.Config) -> dict[str, 
         files[rel][lineno] = ld
     return files
 
-
-def _group_by_folder(files: dict[str, dict[int, LineData]]) -> dict[str, dict[str, dict[int, LineData]]]:
-    folders: dict[str, dict[str, dict[int, LineData]]] = defaultdict(dict)
-    for rel_path, lines in files.items():
-        folder = str(Path(rel_path).parent)
-        folders[folder][rel_path] = lines
-    return folders
 
 
 def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
@@ -366,18 +461,29 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
             rel = Path(abs_path).as_posix()
         abs_path_map[rel] = abs_path
 
-    folder_sections = []
-    for folder, folder_files in sorted(_group_by_folder(files).items()):
-        file_rows = []
-        for rel_path, lines in sorted(folder_files.items()):
-            file_html_name = rel_path.replace("/", "__") + ".html"
-            abs_path = abs_path_map.get(rel_path, rel_path)
-            executable = get_executable_lines(abs_path)
-            total_stmts = len(executable) if executable else len(lines)
-            _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name)
-            file_rows.append(render_file_row(rel_path, lines, file_html_name, total_stmts, executable))
-        folder_sections.append(render_folder_section(folder, "".join(file_rows)))
+    file_entries: list[_FileEntry] = []
+    for rel_path, lines in files.items():
+        file_html_name = rel_path.replace("/", "__") + ".html"
+        abs_path = abs_path_map.get(rel_path, rel_path)
+        executable = get_executable_lines(abs_path)
+        total_stmts = len(executable) if executable else len(lines)
+        deliberate_covered = sum(
+            1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0
+        )
+        incidental_covered = sum(
+            1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0
+        )
+        _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name)
+        file_entries.append(_FileEntry(
+            rel_path=rel_path,
+            file_html_name=file_html_name,
+            total_stmts=total_stmts,
+            deliberate_covered=deliberate_covered,
+            incidental_covered=incidental_covered,
+        ))
 
+    tree = _build_file_tree(file_entries)
+    rows_html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     (output_dir / "index.html").write_text(
-        render_index_page("".join(folder_sections)), encoding="utf-8"
+        render_index_page(rows_html), encoding="utf-8"
     )

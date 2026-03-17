@@ -7,10 +7,12 @@ from coverage_stats.store import SessionStore
 from coverage_stats.reporters.html import (
     write_html,
     render_line,
-    render_file_row,
-    render_folder_section,
     render_index_page,
     render_file_page,
+    _FileEntry,
+    _FolderNode,
+    _build_file_tree,
+    _render_tree_rows,
 )
 
 
@@ -51,7 +53,7 @@ def test_single_file_writes_per_file_page(tmp_path):
     assert (out_dir / "src__foo.py.html").exists()
 
 
-def test_index_contains_details_element(tmp_path):
+def test_index_contains_table_and_folder_row(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
     rootdir.mkdir()
@@ -61,7 +63,8 @@ def test_index_contains_details_element(tmp_path):
     out_dir = tmp_path / "out"
     write_html(store, config, out_dir)
     content = (out_dir / "index.html").read_text()
-    assert "<details" in content
+    assert "<table>" in content
+    assert "folder-row" in content
 
 
 def test_index_contains_folder_name(tmp_path):
@@ -77,7 +80,7 @@ def test_index_contains_folder_name(tmp_path):
     assert "src" in content
 
 
-def test_multiple_folders_creates_multiple_details(tmp_path):
+def test_multiple_folders_appear_in_single_table(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
     rootdir.mkdir()
@@ -89,7 +92,8 @@ def test_multiple_folders_creates_multiple_details(tmp_path):
     out_dir = tmp_path / "out"
     write_html(store, config, out_dir)
     content = (out_dir / "index.html").read_text()
-    assert content.count("<details") == 2
+    assert content.count("<table>") == 1  # single table
+    assert content.count('class="folder-row"') == 2  # one row per top-level folder
 
 
 def test_per_file_page_contains_lineno(tmp_path):
@@ -314,33 +318,59 @@ def test_render_line_escapes_html():
     assert "&lt;script&gt;" in result
 
 
-def test_render_file_row_contains_link():
-    ld = _make_ld(de=1)
-    lines = {1: ld, 2: _make_ld()}
-    result = render_file_row("src/foo.py", lines, "src__foo.py.html", 2, executable={1, 2})
-    assert 'href="src__foo.py.html"' in result
-    assert "src/foo.py" in result
+def test_build_file_tree_groups_by_folder():
+    entries = [
+        _FileEntry("src/a.py", "src__a.py.html", 10, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 2, 4),
+    ]
+    tree = _build_file_tree(entries)
+    assert "src" in tree.subfolders
+    src_node = tree.subfolders["src"]
+    assert len(src_node.files) == 1
+    assert src_node.files[0].rel_path == "src/a.py"
+    assert "sub" in src_node.subfolders
+    assert src_node.subfolders["sub"].files[0].rel_path == "src/sub/b.py"
 
 
-def test_render_file_row_pct_calculation():
-    lines = {1: _make_ld(de=1), 2: _make_ld(), 3: _make_ld()}
-    result = render_file_row("x.py", lines, "x.py.html", 3, executable={1, 2, 3})
-    # 1/3 deliberate = 33.3%
-    assert "33.3%" in result
+def test_folder_node_aggregates_stats():
+    entries = [
+        _FileEntry("src/a.py", "src__a.py.html", 10, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 2, 4),
+    ]
+    tree = _build_file_tree(entries)
+    src = tree.subfolders["src"]
+    assert src.agg_total_stmts() == 18
+    assert src.agg_deliberate() == 7
+    assert src.agg_incidental() == 7
 
 
-def test_render_folder_section_contains_details():
-    result = render_folder_section("src", "<tr><td>row</td></tr>")
-    assert "<details" in result
-    assert "<summary>src</summary>" in result
-    assert "row" in result
+def test_render_tree_rows_contains_link_and_folder():
+    entries = [
+        _FileEntry("src/foo.py", "src__foo.py.html", 3, 1, 2),
+    ]
+    tree = _build_file_tree(entries)
+    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    assert 'href="src__foo.py.html"' in html
+    assert "foo.py" in html
+    assert "src/" in html  # folder row
+
+
+def test_render_tree_rows_pct_calculation():
+    entries = [
+        _FileEntry("src/x.py", "src__x.py.html", 3, 1, 0),
+    ]
+    tree = _build_file_tree(entries)
+    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    assert "33.3%" in html  # 1/3 deliberate on file row
 
 
 def test_render_index_page_full_html():
-    result = render_index_page("<details>sec</details>")
+    result = render_index_page("<tr><td>row</td></tr>")
     assert "<!DOCTYPE html>" in result
     assert "<style>" in result
-    assert "<details>sec</details>" in result
+    assert "<script>" in result
+    assert "<tr><td>row</td></tr>" in result
+    assert "<table>" in result
 
 
 def test_render_file_page_full_html():
