@@ -1,6 +1,10 @@
 # coverage-stats
 
 A pytest plugin that tracks deliberate vs incidental line coverage per test.
+It works like a pytest plugin, that reports (in a way similar to how coverage.py does it):
+1. The number of asserts that were executed in tests that covered each of the lines reported
+2. The number of times each line was executed
+3. It distinguishes between incidental coverage and deliberate coverage. Deliberate coverage means that a test was marked with `@covers(...)` so we can know exactly what lines in the app were tested on purpose in that test. Incidental coverage means the line was covered in tests, but not deliberately
 
 ## Install
 
