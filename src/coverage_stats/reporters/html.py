@@ -25,6 +25,9 @@ th, td {
 }
 th {
     background: #f0f0f0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 tr.deliberate {
     background: #c8e6c9;

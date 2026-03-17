@@ -10,6 +10,7 @@ CORE
 REPORTING:
   * See the exact tests that covered (incidentally & deliberately) every line
   * [v] add num of incidental/deliberate tests that were run for each line of code
+  * [v] make the positioning of the table headers stick at the top of the page
   * in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * in the html index, add all stats (statements, #deliberate, %deliberate, #/%incidental, )
   * [v] exclude some lines (comments, def/class lines, docstrings)
@@ -24,3 +25,4 @@ REPORTING:
 Non-functional requirements:
   * [v] check that performance is not seriously degraded
   * [v] the example project, move it 
+  * the small project - turn it into a larger one, with lots of lines, files and tests (can be copy-pasted)
