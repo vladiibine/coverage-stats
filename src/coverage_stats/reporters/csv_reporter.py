@@ -29,9 +29,9 @@ def write_csv(store: SessionStore, config: pytest.Config, output_dir: Path) -> N
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(
-            ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts"]
+            ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"]
         )
         for rel_path, lineno, ld in rows:
             writer.writerow(
-                [rel_path, lineno, ld.incidental_executions, ld.deliberate_executions, ld.incidental_asserts, ld.deliberate_asserts]
+                [rel_path, lineno, ld.incidental_executions, ld.deliberate_executions, ld.incidental_asserts, ld.deliberate_asserts, ld.incidental_tests, ld.deliberate_tests]
             )

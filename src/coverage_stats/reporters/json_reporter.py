@@ -16,6 +16,8 @@ class _LineStats(TypedDict):
     deliberate_executions: int
     incidental_asserts: int
     deliberate_asserts: int
+    incidental_tests: int
+    deliberate_tests: int
 
 
 class _FileSummary(TypedDict):
@@ -74,6 +76,8 @@ def write_json(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
                 "deliberate_executions": ld.deliberate_executions,
                 "incidental_asserts": ld.incidental_asserts,
                 "deliberate_asserts": ld.deliberate_asserts,
+                "incidental_tests": ld.incidental_tests,
+                "deliberate_tests": ld.deliberate_tests,
             }
             for lineno, ld in lines.items()
         }

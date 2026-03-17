@@ -34,6 +34,9 @@ class LineTracer:
         self._context = context
         self._store = store
         self._prev_trace: _TraceFunc | None = None
+        # Cache raw co_filename → (resolved_str, in_scope) so _trace pays the
+        # Path.resolve() + _in_scope cost at most once per unique source file.
+        self._scope_cache: dict[str, tuple[str, bool]] = {}
 
     def start(self) -> None:
         self._prev_trace = sys.gettrace()
@@ -54,26 +57,61 @@ class LineTracer:
     def _trace(self, frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
         """Global trace function, called by Python on every *call* event.
 
-        Forwards the call to the previous global tracer (e.g. coverage.py) and
-        captures its return value — the local tracer coverage wants installed for
-        this frame.  Returns a per-frame closure that chains both tracers for all
-        subsequent events in that frame.
+        Resolves the filename once per frame and decides up-front whether this
+        frame needs line-level tracking.  For out-of-scope frames we return either
+        ``None`` (no previous tracer) or a minimal wrapper that only forwards to
+        the previous tracer — this prevents Python from calling us on every line
+        event inside those frames, which was the dominant source of overhead.
         """
+        # Resolve the filename once per unique co_filename (cached).
+        raw = frame.f_code.co_filename
+        cached = self._scope_cache.get(raw)
+        if cached is None:
+            filename = str(Path(raw).resolve())
+            in_scope = self._in_scope(filename)
+            self._scope_cache[raw] = (filename, in_scope)
+        else:
+            filename, in_scope = cached
+
         prev_local: _TraceFunc | None = None
         try:
             if self._prev_trace is not None:
                 prev_local = self._prev_trace(frame, event, arg)
         except Exception as exc:
             warnings.warn(f"coverage-stats: tracer error: {exc}")
-        return self._make_local_trace(prev_local)
 
-    def _make_local_trace(self, prev_local: _TraceFunc | None) -> _TraceFunc:
-        """Return a per-frame local trace function that chains prev_local and our logic.
+        if not in_scope:
+            # Out-of-scope frame: don't install our line handler.
+            # If there's a previous tracer (e.g. coverage.py), return a thin
+            # wrapper that only forwards to it so coverage.py keeps working.
+            if prev_local is None:
+                return None  # type: ignore[return-value]
+            return self._make_forwarding_trace(prev_local)
 
-        ``prev_local`` is whatever the previous global tracer (e.g. coverage.py)
-        returned for this frame's *call* event — its own per-frame local tracer.
-        We call it first on every event and track its evolving return value so that
-        coverage.py can change or cancel its local tracer mid-frame if it needs to.
+        return self._make_local_trace(filename, prev_local)
+
+    def _make_forwarding_trace(self, prev_local: _TraceFunc) -> _TraceFunc:
+        """Minimal local tracer for out-of-scope frames that only chains prev_local."""
+        current_prev = prev_local
+
+        def forward(frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
+            nonlocal current_prev
+            try:
+                current_prev = current_prev(frame, event, arg)
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: tracer error: {exc}")
+            if current_prev is None:
+                return None  # type: ignore[return-value]
+            return forward
+
+        return forward
+
+    def _make_local_trace(self, filename: str, prev_local: _TraceFunc | None) -> _TraceFunc:
+        """Return a per-frame local trace function for an in-scope frame.
+
+        The filename is already resolved and known to be in scope — no repeated
+        path work on every line event.  prev_local is coverage.py's local tracer
+        for this frame (if any); we chain it so coverage.py keeps working.
         """
         current_prev = prev_local
 
@@ -84,22 +122,20 @@ class LineTracer:
                     current_prev = current_prev(frame, event, arg)
                 if event == "line":
                     ctx = self._context
-                    filename = str(Path(frame.f_code.co_filename).resolve())
-                    if self._in_scope(filename):
-                        lineno = frame.f_lineno
-                        key = (filename, lineno)
-                        if ctx.current_phase == "call" and ctx.current_test_item is not None:
-                            ld = self._store.get_or_create(key)
-                            covers_lines: frozenset[tuple[str, int]] = getattr(
-                                ctx.current_test_item, "_covers_lines", frozenset()
-                            )
-                            if key in covers_lines:
-                                ld.deliberate_executions += 1
-                            else:
-                                ld.incidental_executions += 1
-                            ctx.current_test_lines.add(key)
-                        elif ctx.current_phase is None:
-                            ctx.pre_test_lines.add(key)
+                    lineno = frame.f_lineno
+                    key = (filename, lineno)
+                    if ctx.current_phase == "call" and ctx.current_test_item is not None:
+                        ld = self._store.get_or_create(key)
+                        covers_lines: frozenset[tuple[str, int]] = getattr(
+                            ctx.current_test_item, "_covers_lines", frozenset()
+                        )
+                        if key in covers_lines:
+                            ld.deliberate_executions += 1
+                        else:
+                            ld.incidental_executions += 1
+                        ctx.current_test_lines.add(key)
+                    elif ctx.current_phase is None:
+                        ctx.pre_test_lines.add(key)
             except Exception as exc:
                 warnings.warn(f"coverage-stats: tracer error: {exc}")
             return local

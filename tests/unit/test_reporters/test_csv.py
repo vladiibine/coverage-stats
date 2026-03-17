@@ -25,7 +25,7 @@ def test_empty_store_writes_header_only(tmp_path):
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
     assert len(rows) == 1
-    assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts"]
+    assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"]
 
 
 def test_correct_column_order(tmp_path):
@@ -44,8 +44,8 @@ def test_correct_column_order(tmp_path):
     write_csv(store, config, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
-    assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts"]
-    assert rows[1] == ["src/foo.py", "5", "1", "2", "3", "4"]
+    assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"]
+    assert rows[1] == ["src/foo.py", "5", "1", "2", "3", "4", "0", "0"]
 
 
 def test_rows_sorted_by_file_then_lineno(tmp_path):

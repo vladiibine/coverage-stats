@@ -48,8 +48,8 @@ def test_record_assertion_accumulates_multiple_calls():
 # --- distribute_asserts tests ---
 
 
-def test_distribute_asserts_no_asserts_store_unchanged():
-    """Zero asserts: store must not be modified."""
+def test_distribute_asserts_no_asserts_still_records_test_counts():
+    """Zero asserts: assert counts stay zero but test counts are still recorded."""
     store = SessionStore()
     ctx = ProfilerContext(
         current_phase="teardown",
@@ -61,7 +61,10 @@ def test_distribute_asserts_no_asserts_store_unchanged():
 
     distribute_asserts(ctx, store)
 
-    assert store._data == {}
+    for key in [(f, 1), (f, 2)]:
+        ld = store.get_or_create(key)
+        assert ld.incidental_asserts == 0
+        assert ld.incidental_tests == 1
     assert ctx.current_assert_count == 0
     assert ctx.current_test_lines == set()
 
@@ -125,7 +128,7 @@ def test_distribute_asserts_empty_lines_non_zero_count():
 
     distribute_asserts(ctx, store)
 
-    assert store._data == {}
+    assert store._data == {}  # no lines → nothing written
     assert ctx.current_assert_count == 0
     assert ctx.current_test_lines == set()
 
@@ -145,6 +148,63 @@ def test_distribute_asserts_new_test_resets_state():
 
     assert ctx.current_assert_count == 0
     assert ctx.current_test_lines == set()
+
+
+def test_distribute_asserts_records_incidental_test_count():
+    """Each line in current_test_lines gets incidental_tests += 1 when not in covers_lines."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(covers_lines=frozenset()),
+        current_assert_count=0,
+    )
+    ctx.current_test_lines = {(f, 1), (f, 2)}
+
+    distribute_asserts(ctx, store)
+
+    assert store.get_or_create((f, 1)).incidental_tests == 1
+    assert store.get_or_create((f, 2)).incidental_tests == 1
+    assert store.get_or_create((f, 1)).deliberate_tests == 0
+
+
+def test_distribute_asserts_records_deliberate_test_count():
+    """Lines in covers_lines get deliberate_tests += 1."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    deliberate_key = (f, 1)
+    incidental_key = (f, 2)
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(covers_lines=frozenset([deliberate_key])),
+        current_assert_count=0,
+    )
+    ctx.current_test_lines = {deliberate_key, incidental_key}
+
+    distribute_asserts(ctx, store)
+
+    assert store.get_or_create(deliberate_key).deliberate_tests == 1
+    assert store.get_or_create(deliberate_key).incidental_tests == 0
+    assert store.get_or_create(incidental_key).incidental_tests == 1
+    assert store.get_or_create(incidental_key).deliberate_tests == 0
+
+
+def test_distribute_asserts_accumulates_test_counts_across_calls():
+    """Calling distribute_asserts twice (two tests) accumulates test counts."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    key = (f, 10)
+
+    for _ in range(3):
+        ctx = ProfilerContext(
+            current_phase="teardown",
+            current_test_item=make_item(covers_lines=frozenset()),
+            current_assert_count=1,
+        )
+        ctx.current_test_lines = {key}
+        distribute_asserts(ctx, store)
+
+    assert store.get_or_create(key).incidental_tests == 3
 
 
 def test_distribute_asserts_resets_count_and_lines_after_distribution():

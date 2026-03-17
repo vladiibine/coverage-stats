@@ -11,14 +11,17 @@ def record_assertion(ctx: ProfilerContext) -> None:
 
 
 def distribute_asserts(ctx: ProfilerContext, store: SessionStore) -> None:
+    covers_lines: frozenset[tuple[str, int]] = getattr(ctx.current_test_item, "_covers_lines", frozenset())
     count = ctx.current_assert_count
-    if count and ctx.current_test_lines:
-        covers_lines: frozenset[tuple[str, int]] = getattr(ctx.current_test_item, "_covers_lines", frozenset())
-        for key in ctx.current_test_lines:
-            ld = store.get_or_create(key)
-            if key in covers_lines:
+    for key in ctx.current_test_lines:
+        ld = store.get_or_create(key)
+        if key in covers_lines:
+            if count:
                 ld.deliberate_asserts += count
-            else:
+            ld.deliberate_tests += 1
+        else:
+            if count:
                 ld.incidental_asserts += count
+            ld.incidental_tests += 1
     ctx.current_assert_count = 0
     ctx.current_test_lines.clear()

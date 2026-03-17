@@ -115,6 +115,21 @@ class CoverageStatsPlugin:
         self._store: SessionStore | None = None
         self._tracer: LineTracer | None = None
 
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        """Start the line tracer now that all plugins have finished configuring.
+
+        Deferring tracer.start() from pytest_configure to here avoids tracing
+        the heavyweight module imports that other plugins trigger during their
+        own pytest_configure hooks (e.g. _pytest.debugging loading pdb + asyncio),
+        which otherwise accounts for several seconds of pure tracing overhead.
+        """
+        if not self._enabled:
+            return
+        if _is_xdist_controller(session.config):
+            return
+        if self._tracer is not None:
+            self._tracer.start()
+
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         """Called after collection is finished."""
         if not self._enabled:
@@ -294,6 +309,6 @@ def pytest_configure(config: pytest.Config) -> None:
     config._coverage_stats_ctx = ctx  # type: ignore[attr-defined]
     plugin._store = store
     plugin._tracer = tracer
-
-    tracer.start()
+    # tracer.start() is deferred to pytest_sessionstart to avoid tracing
+    # heavyweight imports by other plugins during their pytest_configure hooks.
     config.pluginmanager.register(plugin, "coverage-stats-plugin")

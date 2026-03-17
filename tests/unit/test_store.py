@@ -10,6 +10,8 @@ class TestLineDataDefaults:
         assert ld.deliberate_executions == 0
         assert ld.incidental_asserts == 0
         assert ld.deliberate_asserts == 0
+        assert ld.incidental_tests == 0
+        assert ld.deliberate_tests == 0
 
 
 class TestSessionStoreGetOrCreate:
@@ -17,7 +19,7 @@ class TestSessionStoreGetOrCreate:
         store = SessionStore()
         key = ("/some/file.py", 42)
         ld = store.get_or_create(key)
-        assert ld == LineData(0, 0, 0, 0)
+        assert ld == LineData(0, 0, 0, 0, 0, 0)
 
     def test_new_key_is_stored(self) -> None:
         store = SessionStore()
@@ -46,6 +48,8 @@ class TestSessionStoreMerge:
         ld_a.deliberate_executions = 1
         ld_a.incidental_asserts = 2
         ld_a.deliberate_asserts = 0
+        ld_a.incidental_tests = 2
+        ld_a.deliberate_tests = 1
 
         store_b = SessionStore()
         ld_b = store_b.get_or_create(key)
@@ -53,6 +57,8 @@ class TestSessionStoreMerge:
         ld_b.deliberate_executions = 4
         ld_b.incidental_asserts = 1
         ld_b.deliberate_asserts = 7
+        ld_b.incidental_tests = 3
+        ld_b.deliberate_tests = 2
 
         store_a.merge(store_b)
 
@@ -61,6 +67,8 @@ class TestSessionStoreMerge:
         assert result.deliberate_executions == 5
         assert result.incidental_asserts == 3
         assert result.deliberate_asserts == 7
+        assert result.incidental_tests == 5
+        assert result.deliberate_tests == 3
 
     def test_merge_disjoint_keys_all_present(self) -> None:
         key_a = ("/x.py", 1)
@@ -95,7 +103,7 @@ class TestSessionStoreToDict:
 
         result = store.to_dict()
         assert "/some/path.py\x0099" in result
-        assert result["/some/path.py\x0099"] == [1, 2, 3, 4]
+        assert result["/some/path.py\x0099"] == [1, 2, 3, 4, 0, 0]
 
 
 class TestSessionStoreRoundTrip:
@@ -108,6 +116,8 @@ class TestSessionStoreRoundTrip:
         ld1.deliberate_executions = 3
         ld1.incidental_asserts = 2
         ld1.deliberate_asserts = 1
+        ld1.incidental_tests = 4
+        ld1.deliberate_tests = 2
 
         key2 = ("/c/d.py", 100)
         ld2 = store.get_or_create(key2)
@@ -115,6 +125,8 @@ class TestSessionStoreRoundTrip:
         ld2.deliberate_executions = 7
         ld2.incidental_asserts = 0
         ld2.deliberate_asserts = 4
+        ld2.incidental_tests = 0
+        ld2.deliberate_tests = 3
 
         serialized = store.to_dict()
         restored = SessionStore.from_dict(serialized)
@@ -124,12 +136,16 @@ class TestSessionStoreRoundTrip:
         assert restored_ld1.deliberate_executions == 3
         assert restored_ld1.incidental_asserts == 2
         assert restored_ld1.deliberate_asserts == 1
+        assert restored_ld1.incidental_tests == 4
+        assert restored_ld1.deliberate_tests == 2
 
         restored_ld2 = restored.get_or_create(key2)
         assert restored_ld2.incidental_executions == 0
         assert restored_ld2.deliberate_executions == 7
         assert restored_ld2.incidental_asserts == 0
         assert restored_ld2.deliberate_asserts == 4
+        assert restored_ld2.incidental_tests == 0
+        assert restored_ld2.deliberate_tests == 3
 
     def test_round_trip_via_json_serialization(self) -> None:
         """Verify null-byte separator survives json.dumps → json.loads (xdist transport)."""
@@ -142,6 +158,8 @@ class TestSessionStoreRoundTrip:
         ld.deliberate_executions = 1
         ld.incidental_asserts = 2
         ld.deliberate_asserts = 0
+        ld.incidental_tests = 2
+        ld.deliberate_tests = 1
 
         json_str = json.dumps(store.to_dict())
         restored = SessionStore.from_dict(json.loads(json_str))
@@ -151,6 +169,8 @@ class TestSessionStoreRoundTrip:
         assert restored_ld.deliberate_executions == 1
         assert restored_ld.incidental_asserts == 2
         assert restored_ld.deliberate_asserts == 0
+        assert restored_ld.incidental_tests == 2
+        assert restored_ld.deliberate_tests == 1
 
     def test_round_trip_path_with_colon(self) -> None:
         store = SessionStore()
@@ -160,6 +180,8 @@ class TestSessionStoreRoundTrip:
         ld.deliberate_executions = 8
         ld.incidental_asserts = 7
         ld.deliberate_asserts = 6
+        ld.incidental_tests = 5
+        ld.deliberate_tests = 4
 
         serialized = store.to_dict()
         restored = SessionStore.from_dict(serialized)
@@ -169,3 +191,5 @@ class TestSessionStoreRoundTrip:
         assert restored_ld.deliberate_executions == 8
         assert restored_ld.incidental_asserts == 7
         assert restored_ld.deliberate_asserts == 6
+        assert restored_ld.incidental_tests == 5
+        assert restored_ld.deliberate_tests == 4

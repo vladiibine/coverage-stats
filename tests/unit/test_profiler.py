@@ -154,8 +154,9 @@ def test_trace_skips_file_outside_source_dirs():
     ctx.current_test_item = item
 
     frame = make_frame("/my/src/foo.py", 5)
-    local = tracer._trace(frame, "call", None)
-    local(frame, "line", None)
+    # Out-of-scope frames return None so Python won't call us for line events
+    result = tracer._trace(frame, "call", None)
+    assert result is None
     assert store._data == {}
 
 

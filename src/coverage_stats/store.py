@@ -9,6 +9,8 @@ class LineData:
     deliberate_executions: int = 0
     incidental_asserts: int = 0
     deliberate_asserts: int = 0
+    incidental_tests: int = 0
+    deliberate_tests: int = 0
 
 
 class SessionStore:
@@ -27,6 +29,8 @@ class SessionStore:
             ld.deliberate_executions += other_ld.deliberate_executions
             ld.incidental_asserts += other_ld.incidental_asserts
             ld.deliberate_asserts += other_ld.deliberate_asserts
+            ld.incidental_tests += other_ld.incidental_tests
+            ld.deliberate_tests += other_ld.deliberate_tests
 
     def to_dict(self) -> dict[str, list[int]]:
         return {
@@ -35,6 +39,8 @@ class SessionStore:
                 ld.deliberate_executions,
                 ld.incidental_asserts,
                 ld.deliberate_asserts,
+                ld.incidental_tests,
+                ld.deliberate_tests,
             ]
             for (path, lineno), ld in self._data.items()
         }
@@ -50,4 +56,6 @@ class SessionStore:
             ld.deliberate_executions = values[1]
             ld.incidental_asserts = values[2]
             ld.deliberate_asserts = values[3]
+            ld.incidental_tests = values[4] if len(values) > 4 else 0
+            ld.deliberate_tests = values[5] if len(values) > 5 else 0
         return store

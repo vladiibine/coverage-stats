@@ -174,28 +174,34 @@ def render_line(lineno: int, source_text: str, ld: LineData | None, executable: 
                 partial: bool = False) -> str:
     if not executable:
         css_class = ""
-        inc_exec = del_exec = inc_asserts = del_asserts = ""
+        inc_exec = del_exec = inc_asserts = del_asserts = inc_tests = del_tests = ""
     elif partial:
         css_class = "partial"
         inc_exec = str(ld.incidental_executions) if ld else "0"
         del_exec = str(ld.deliberate_executions) if ld else "0"
         inc_asserts = str(ld.incidental_asserts) if ld else "0"
         del_asserts = str(ld.deliberate_asserts) if ld else "0"
+        inc_tests = str(ld.incidental_tests) if ld else "0"
+        del_tests = str(ld.deliberate_tests) if ld else "0"
     elif ld is not None and ld.deliberate_executions > 0:
         css_class = "deliberate"
         inc_exec = str(ld.incidental_executions)
         del_exec = str(ld.deliberate_executions)
         inc_asserts = str(ld.incidental_asserts)
         del_asserts = str(ld.deliberate_asserts)
+        inc_tests = str(ld.incidental_tests)
+        del_tests = str(ld.deliberate_tests)
     elif ld is not None and ld.incidental_executions > 0:
         css_class = "incidental"
         inc_exec = str(ld.incidental_executions)
         del_exec = str(ld.deliberate_executions)
         inc_asserts = str(ld.incidental_asserts)
         del_asserts = str(ld.deliberate_asserts)
+        inc_tests = str(ld.incidental_tests)
+        del_tests = str(ld.deliberate_tests)
     else:
         css_class = "missed"
-        inc_exec = del_exec = inc_asserts = del_asserts = "0"
+        inc_exec = del_exec = inc_asserts = del_asserts = inc_tests = del_tests = "0"
     escaped = _html.escape(source_text)
     branch_marker = '<td class="branch-warn" title="not all branches taken">⚑</td>' if partial else "<td></td>"
     class_attr = f' class="{css_class}"' if css_class else ""
@@ -208,6 +214,8 @@ def render_line(lineno: int, source_text: str, ld: LineData | None, executable: 
         f'<td>{del_exec}</td>'
         f'<td>{inc_asserts}</td>'
         f'<td>{del_asserts}</td>'
+        f'<td>{inc_tests}</td>'
+        f'<td>{del_tests}</td>'
         f'</tr>'
     )
 
@@ -281,6 +289,7 @@ def render_file_page(rel_path: str, stats_html: str, lines_html: str) -> str:
         f'<th>#</th><th></th><th>Source</th>'
         f'<th>Incidental Executions</th><th>Deliberate Executions</th>'
         f'<th>Incidental Asserts</th><th>Deliberate Asserts</th>'
+        f'<th>Incidental Tests</th><th>Deliberate Tests</th>'
         f'</tr></thead>'
         f'<tbody>{lines_html}</tbody>'
         f'</table>'

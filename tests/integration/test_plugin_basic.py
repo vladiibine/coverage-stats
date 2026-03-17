@@ -92,6 +92,58 @@ coverage_stats_output_dir = coverage-stats-report
     assert mylib_keys, f"mylib not found in report: {list(files.keys())}"
 
 
+def test_test_counts_are_tracked(pytester):
+    """incidental_tests and deliberate_tests reflect the number of distinct tests that hit each line."""
+    pytester.makepyfile(
+        mylib="""
+def add(a, b):
+    return a + b
+"""
+    )
+
+    pytester.makepyfile(
+        test_mylib="""
+from mylib import add
+
+def test_one():
+    assert add(1, 2) == 3
+
+def test_two():
+    assert add(4, 5) == 9
+
+def test_three():
+    assert add(0, 0) == 0
+"""
+    )
+
+    pytester.makeini(
+        """
+[pytest]
+coverage_stats_source = .
+coverage_stats_format = json
+coverage_stats_output_dir = coverage-stats-report
+"""
+    )
+
+    result = pytester.runpytest("--coverage-stats", "-v")
+    result.assert_outcomes(passed=3)
+
+    report = json.loads((pytester.path / "coverage-stats-report" / "coverage-stats.json").read_text())
+    files = report["files"]
+    mylib_key = next(k for k in files if "mylib" in k and "test_" not in k)
+    lines = files[mylib_key]["lines"]
+
+    executed = {lno: ld for lno, ld in lines.items() if ld["incidental_executions"] > 0}
+    assert executed, "Expected executed lines"
+
+    # All 3 tests hit add() incidentally — test count should be 3
+    assert any(ld["incidental_tests"] == 3 for ld in executed.values()), (
+        f"Expected incidental_tests==3 on some line, got: {executed}"
+    )
+    # No @covers used, so deliberate_tests must be 0 everywhere
+    assert all(ld["deliberate_tests"] == 0 for ld in lines.values())
+
+
 def test_incidental_asserts_are_counted(pytester):
     """Lines executed under a plain (non-@covers) assert must have incidental_asserts > 0."""
     pytester.makepyfile(
