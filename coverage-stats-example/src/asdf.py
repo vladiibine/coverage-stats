@@ -45,6 +45,50 @@ def multiply_sum(a, b, c):
     return foo_sum(a, b) * c
 
 
+def weird_corner_cases_1_while_loop_(a, b):
+    """Weird corner cases 1."""
+    while a:
+        a.pop()
+
+    a.append(b)
+
+    while a:
+        b.pop()
+
+    return 4
+
+
+def weird_corner_cases_2_for_loop(a, b):
+    """Weird corner cases 2."""
+    counter = 9
+    for x in a:
+        counter += 3
+
+    for x in b:
+        counter += 30
+
+    return 15
+
+def weird_case_multiple_statements_on_one_line(a, b):
+    """Weird corner cases 2."""
+    x = 1; y = 2; z = 3
+
+    q = 3 if a == 2 else 4
+    w = 4 if a == 2 else 5 if b == 3 else 6
+    e = 5 if a == 2 else 0; r = 0 if a == 2 else -1
+
+
+def weird_corner_cases_3_try_except_(a):
+    """try-except-else: only the exception branch is ever taken."""
+    try:
+        x = 10 // a
+    except ZeroDivisionError:
+        x = -1
+    else:
+        x = x + 1  # never reached — a is always 0
+    return x
+
+
 def not_covered(a, b):
     """The docstring."""
     class TotallyNotCovered:

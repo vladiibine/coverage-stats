@@ -244,13 +244,17 @@ def _missed_ranges(missed: list[int]) -> str:
 
 
 def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
-    """Return line numbers of executed if-statements where not all branches were taken.
+    """Return line numbers of executed if/while-statements where not all branches were taken.
 
-    For each ``if`` node whose line was executed:
+    For each ``if`` or ``while`` node whose line was executed:
     - *true branch not taken*: the first line of the body was never executed.
-    - *false branch not taken*: for if-with-else, the first line of the else/elif
-      was never executed; for if-without-else, the if line ran more times than the
+    - *false branch not taken*: for nodes with an else/elif clause, the first line of
+      the else was never executed; otherwise, the condition line ran more times than the
       body's first line (i.e. the condition was never False).
+
+    For ``while`` loops specifically, ``cond_count == body_count`` means the condition
+    was always True and the loop never exited normally (it left via exception, return,
+    or break), so the false branch is considered not taken — matching coverage.py behaviour.
     """
     def _count(lineno: int) -> int:
         ld = lines.get(lineno)
@@ -264,7 +268,7 @@ def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
 
     result: set[int] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
+        if not isinstance(node, (ast.If, ast.While, ast.For)):
             continue
         if_count = _count(node.lineno)
         if if_count == 0:
