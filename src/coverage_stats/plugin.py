@@ -114,6 +114,7 @@ class CoverageStatsPlugin:
         self._enabled: bool = False
         self._store: SessionStore | None = None
         self._tracer: LineTracer | None = None
+        self._orig_read_pyc: object = None  # stored during collection to force rewrite
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         """Start the line tracer now that all plugins have finished configuring.
@@ -131,9 +132,13 @@ class CoverageStatsPlugin:
             self._tracer.start()
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
-        """Called after collection is finished."""
+        """Called after collection is finished; restore _read_pyc so the cache works normally."""
         if not self._enabled:
             return
+        if self._orig_read_pyc is not None:
+            import _pytest.assertion.rewrite as _rewrite
+            _rewrite._read_pyc = self._orig_read_pyc  # type: ignore[assignment]
+            self._orig_read_pyc = None
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
         """Resolve @covers metadata and reset per-test tracking state."""
@@ -309,6 +314,17 @@ def pytest_configure(config: pytest.Config) -> None:
     config._coverage_stats_ctx = ctx  # type: ignore[attr-defined]
     plugin._store = store
     plugin._tracer = tracer
+
+    # Bypass pytest's assertion-rewrite .pyc cache during test collection.
+    # pytest caches rewritten bytecode without including `enable_assertion_pass_hook`
+    # in the cache key, so if tests ran previously without this flag the cached .pyc
+    # files won't contain hook call sites and pytest_assertion_pass never fires.
+    # Returning None from _read_pyc forces a fresh rewrite for every test module
+    # collected this session.  The hook is restored in pytest_collection_finish.
+    import _pytest.assertion.rewrite as _rewrite
+    plugin._orig_read_pyc = _rewrite._read_pyc
+    _rewrite._read_pyc = lambda *args, **kwargs: None  # type: ignore[assignment]
+
     # tracer.start() is deferred to pytest_sessionstart to avoid tracing
     # heavyweight imports by other plugins during their pytest_configure hooks.
     config.pluginmanager.register(plugin, "coverage-stats-plugin")
