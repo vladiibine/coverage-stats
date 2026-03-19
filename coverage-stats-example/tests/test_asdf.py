@@ -1,7 +1,8 @@
 from coverage_stats import covers
 from asdf import (
     double_sum, multiply_sum, foo_sum, weird_corner_cases_1_while_loop_, weird_corner_cases_2_for_loop,
-    weird_case_multiple_statements_on_one_line, weird_corner_cases_3_try_except_)
+    weird_case_multiple_statements_on_one_line, weird_corner_cases_4_with_,
+)
 
 
 def test_badly_foo_sum():
@@ -39,6 +40,8 @@ def test_weird_case_multiple_statements_on_one_line():
     assert weird_case_multiple_statements_on_one_line(2, 0) == 12
 
 
-@covers(weird_corner_cases_3_try_except_)
-def test_weird_corner_cases_3():
-    assert weird_corner_cases_3_try_except_(0) == -1  # always raises; else clause never runs
+@covers(weird_corner_cases_4_with_)
+def test_weird_corner_cases_4():
+    # Both paths: exception suppressed (a=0) and normal (a=2)
+    assert weird_corner_cases_4_with_(0) == 0
+    assert weird_corner_cases_4_with_(2) == 5

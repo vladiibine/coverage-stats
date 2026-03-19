@@ -58,6 +58,24 @@ def weird_corner_cases_1_while_loop_(a, b):
     return 4
 
 
+def weird_corner_cases_4_with_(a):
+    """With statement: no partial-branch cases to detect.
+
+    The 'with:' line fires a line event TWICE per normal execution in Python 3.11+
+    (once for __enter__, once for __exit__), so with_count == 2 * body_count for
+    normal runs.  The only theoretical partial case is __enter__ raising (body never
+    runs), which gives with_count == 1, body_count == 0.  That *could* be detected
+    with the heuristic `with_count > 2 * body_count`, but that multiplier is
+    Python-version-specific and would produce wrong results on older interpreters.
+    Coverage.py does not mark 'with' as partially covered either.
+    """
+    from contextlib import suppress
+    x = 0
+    with suppress(ZeroDivisionError):
+        x = 10 // a  # raises when a=0 (suppressed); assigns when a!=0
+    return x
+
+
 def weird_corner_cases_2_for_loop(a, b):
     """Weird corner cases 2."""
     counter = 9
@@ -76,17 +94,6 @@ def weird_case_multiple_statements_on_one_line(a, b):
     q = 3 if a == 2 else 4
     w = 4 if a == 2 else 5 if b == 3 else 6
     e = 5 if a == 2 else 0; r = 0 if a == 2 else -1
-
-
-def weird_corner_cases_3_try_except_(a):
-    """try-except-else: only the exception branch is ever taken."""
-    try:
-        x = 10 // a
-    except ZeroDivisionError:
-        x = -1
-    else:
-        x = x + 1  # never reached — a is always 0
-    return x
 
 
 def not_covered(a, b):
