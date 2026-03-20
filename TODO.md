@@ -12,7 +12,11 @@ REPORTING:
   * See the exact tests that covered (incidentally & deliberately) every line
   * in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * in the html index, add all stats (statements, #deliberate, %deliberate, #/%incidental, )
-  * check skipped for/while branches
+  * total coverage
+  * json/csv reporting: do they also display partial lines? They should!
+  * [v] match statements - check if they can be seen as partial, and implement it like coverage.py if they can
+  * [v] check with statement; claude wasn't able to figure it out. I imagine the case where the `__enter__` fires an exception could be treated as partial, but let's check how coverage does it 
+  * [v] check skipped for/while branches
   * [v] add num of incidental/deliberate tests that were run for each line of code
   * [v] make the positioning of the table headers stick at the top of the page
   * [v] exclude some lines (comments, def/class lines, docstrings)
