@@ -28,6 +28,8 @@ REPORTING:
   * [v] summary per folder, in index.html
 
 Non-functional requirements:
+  * clone some open source projects, run its tests, check the coverage for it 
+  * publish on pypi
   * [v] check that performance is not seriously degraded
   * [v] the example project, move it 
   * [v] the small project - turn it into a larger one, with lots of lines, files and tests (can be copy-pasted)
