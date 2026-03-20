@@ -6,7 +6,7 @@ import textwrap
 import pytest
 
 from coverage_stats.store import LineData
-from coverage_stats.reporters.html import _get_partial_branches
+from coverage_stats.reporters.html import _analyze_branches
 from coverage_stats.executable_lines import get_executable_lines
 
 
@@ -75,7 +75,7 @@ def test_match_case1_always_matched_is_partial(tmp_path):
         case1_body: _ld(5),   # case 1 body ran (always matched)
         # case2_line: never reached → no entry
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case1_line in result
     assert case2_line not in result  # missing, not partial
 
@@ -106,7 +106,7 @@ def test_match_all_cases_taken_not_partial(tmp_path):
         case_wild_line: _ld(1),
         case_wild_line + 1: _ld(1),  # wildcard body (matched once)
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case1_line not in result
     assert case2_line not in result
     assert case_wild_line not in result
@@ -132,7 +132,7 @@ def test_match_case_never_reached_not_partial(tmp_path):
         case1_line: _ld(5),
         case1_line + 1: _ld(5),
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case2_line not in result
 
 
@@ -157,7 +157,7 @@ def test_match_case_never_matched_is_partial(tmp_path):
         case2_line: _ld(5),
         case2_line + 1: _ld(5),
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case1_line in result
 
 
@@ -182,7 +182,7 @@ def test_match_last_case_not_taken_is_partial(tmp_path):
         case2_line: _ld(5),
         # case 2 body: never ran
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case2_line in result
 
 
@@ -204,5 +204,140 @@ def test_match_last_case_taken_not_partial(tmp_path):
         case2_line: _ld(3),
         case2_line + 1: _ld(3),
     }
-    result = _get_partial_branches(path, lines)
+    result = _analyze_branches(path, lines).partial
     assert case2_line not in result
+
+
+# ---------------------------------------------------------------------------
+# _analyze_branches — arc counting
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_branches_if_both_taken(tmp_path):
+    """if with both branches taken → no partial, arcs_total=2, arcs_covered=2."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+            else:
+                return 0
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    else_body = next(i + 1 for i, l in enumerate(src) if "return 0" in l)
+    lines = {
+        if_line: _ld(10),
+        body_line: _ld(5),
+        else_body: _ld(5),
+    }
+    result = _analyze_branches(path, lines)
+    assert if_line not in result.partial
+    assert result.arcs_total == 2
+    assert result.arcs_covered == 2
+
+
+def test_analyze_branches_if_false_not_taken(tmp_path):
+    """if with true branch only → partial, arcs_total=2, arcs_covered=1."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    lines = {
+        if_line: _ld(5),
+        body_line: _ld(5),
+    }
+    result = _analyze_branches(path, lines)
+    assert if_line in result.partial
+    assert result.arcs_total == 2
+    assert result.arcs_covered == 1
+
+
+def test_analyze_branches_for_body_not_taken(tmp_path):
+    """for loop over empty iterable → body never ran → partial, arcs_total=2, arcs_covered=1."""
+    path = _write(tmp_path, """\
+        def f():
+            for i in []:
+                pass
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    for_line = next(i + 1 for i, l in enumerate(src) if "for i" in l)
+    lines = {
+        for_line: _ld(3),
+        # body (pass) never ran
+    }
+    result = _analyze_branches(path, lines)
+    assert for_line in result.partial
+    assert result.arcs_total == 2
+    assert result.arcs_covered == 1
+
+
+def test_analyze_branches_unreached_branch_contributes_missed_arcs(tmp_path):
+    """if block never reached → arcs_total=2, arcs_covered=0."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    lines: dict[int, LineData] = {}   # if line never executed
+    result = _analyze_branches(path, lines)
+    assert if_line not in result.partial
+    assert result.arcs_total == 2
+    assert result.arcs_covered == 0
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
+def test_analyze_branches_match_wildcard_last_case(tmp_path):
+    """Wildcard last case contributes 0 arcs."""
+    path = _write(tmp_path, """\
+        def f(v):
+            match v:
+                case 1:
+                    return "one"
+                case _:
+                    return "other"
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
+    case_wild_line = next(i + 1 for i, l in enumerate(src) if "case _" in l)
+    lines = {
+        case1_line: _ld(5),
+        case1_line + 1: _ld(3),   # body taken sometimes
+        case_wild_line: _ld(2),
+        case_wild_line + 1: _ld(2),
+    }
+    result = _analyze_branches(path, lines)
+    # non-last case 1: 2 arcs; wildcard last: 0 arcs → total=2
+    assert result.arcs_total == 2
+    assert case_wild_line not in result.partial
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
+def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
+    """Non-wildcard last case contributes 1 arc."""
+    path = _write(tmp_path, """\
+        def f(v):
+            match v:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
+    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    lines = {
+        case1_line: _ld(5),
+        case1_line + 1: _ld(3),
+        case2_line: _ld(2),
+        case2_line + 1: _ld(2),
+    }
+    result = _analyze_branches(path, lines)
+    # case 1 (non-last): 2 arcs; case 2 (non-wildcard last): 1 arc → total=3
+    assert result.arcs_total == 3

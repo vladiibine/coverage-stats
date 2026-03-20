@@ -9,6 +9,7 @@ from coverage_stats.reporters.html import (
     render_line,
     render_index_page,
     render_file_page,
+    render_file_stats,
     _FileEntry,
     _FolderNode,
     _build_file_tree,
@@ -320,8 +321,8 @@ def test_render_line_escapes_html():
 
 def test_build_file_tree_groups_by_folder():
     entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 2, 4),
+        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 0, 0, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 0, 0, 2, 4),
     ]
     tree = _build_file_tree(entries)
     assert "src" in tree.subfolders
@@ -334,19 +335,22 @@ def test_build_file_tree_groups_by_folder():
 
 def test_folder_node_aggregates_stats():
     entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 2, 4),
+        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 4, 3, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 2, 1, 2, 4),
     ]
     tree = _build_file_tree(entries)
     src = tree.subfolders["src"]
     assert src.agg_total_stmts() == 18
+    assert src.agg_total_covered() == 12
     assert src.agg_deliberate() == 7
     assert src.agg_incidental() == 7
+    assert src.agg_arcs_total() == 6
+    assert src.agg_arcs_covered() == 4
 
 
 def test_render_tree_rows_contains_link_and_folder():
     entries = [
-        _FileEntry("src/foo.py", "src__foo.py.html", 3, 1, 2),
+        _FileEntry("src/foo.py", "src__foo.py.html", 3, 2, 0, 0, 1, 2),
     ]
     tree = _build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
@@ -357,11 +361,12 @@ def test_render_tree_rows_contains_link_and_folder():
 
 def test_render_tree_rows_pct_calculation():
     entries = [
-        _FileEntry("src/x.py", "src__x.py.html", 3, 1, 0),
+        _FileEntry("src/x.py", "src__x.py.html", 3, 2, 0, 0, 1, 0),
     ]
     tree = _build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "33.3%" in html  # 1/3 deliberate on file row
+    assert "66.7%" in html  # 2/3 total on file row
 
 
 def test_render_index_page_full_html():
@@ -380,3 +385,38 @@ def test_render_file_page_full_html():
     assert "42" in result
     assert "stats" in result
     assert "<style>" in result
+
+
+def test_render_file_stats_shows_total_pct():
+    result = render_file_stats(
+        total_stmts=10, covered=7, total_pct=70.0,
+        deliberate_cnt=4, deliberate_pct=40.0,
+        incidental_cnt=3, incidental_pct=30.0,
+    )
+    assert "70.0%" in result
+    assert "total %" in result
+
+
+def test_folder_node_agg_total_covered():
+    entries = [
+        _FileEntry("a/x.py", "a__x.py.html", 10, 8, 0, 0, 6, 3),
+        _FileEntry("a/y.py", "a__y.py.html", 5, 3, 0, 0, 1, 2),
+    ]
+    tree = _build_file_tree(entries)
+    node = tree.subfolders["a"]
+    assert node.agg_total_covered() == 11  # 8 + 3
+
+
+def test_render_tree_rows_total_pct_column():
+    entries = [
+        _FileEntry("src/z.py", "src__z.py.html", 4, 3, 0, 0, 2, 1),
+    ]
+    tree = _build_file_tree(entries)
+    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    assert "75.0%" in html   # 3/4 total on file row
+    assert "50.0%" in html   # 2/4 deliberate on file row
+
+
+def test_index_page_has_total_pct_header():
+    result = render_index_page("")
+    assert "Total %" in result
