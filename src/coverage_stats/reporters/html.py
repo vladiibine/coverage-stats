@@ -556,7 +556,7 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path, pre
         file_html_name = rel_path.replace("/", "__") + ".html"
         abs_path = abs_path_map.get(rel_path, rel_path)
         executable = get_executable_lines(abs_path)
-        total_stmts = len(executable) if executable else len(lines)
+        total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(lines)
         total_covered = sum(
             1 for ln in executable
             if ln in lines and (lines[ln].deliberate_executions > 0 or lines[ln].incidental_executions > 0)

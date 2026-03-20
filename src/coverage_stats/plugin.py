@@ -310,7 +310,7 @@ def pytest_configure(config: pytest.Config) -> None:
     from coverage_stats.store import SessionStore
 
     raw_source = config.getini("coverage_stats_source")
-    rootdir = Path(str(config.rootdir))
+    rootdir = Path(str(config.rootpath))
     candidate_dirs = [
         (rootdir / d).resolve() if not Path(d).is_absolute() else Path(d).resolve()
         for d in (raw_source.split() if isinstance(raw_source, str) else raw_source)
@@ -336,7 +336,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # collected this session.  The hook is restored in pytest_collection_finish.
     import _pytest.assertion.rewrite as _rewrite
     plugin._orig_read_pyc = _rewrite._read_pyc
-    _rewrite._read_pyc = lambda *args, **kwargs: None  # type: ignore[assignment]
+    _rewrite._read_pyc = lambda *args, **kwargs: None
 
     # tracer.start() is deferred to pytest_sessionstart to avoid tracing
     # heavyweight imports by other plugins during their pytest_configure hooks.

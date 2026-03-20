@@ -101,7 +101,7 @@ class LineTracer:
             except Exception as exc:
                 warnings.warn(f"coverage-stats: tracer error: {exc}")
             if current_prev is None:
-                return None  # type: ignore[return-value]
+                return None
             return forward
 
         return forward

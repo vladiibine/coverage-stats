@@ -227,6 +227,58 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     assert "<td>2</td>" not in content
 
 
+def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
+    """An empty (0-byte) source file must show 0 stmts in the index even if the
+    tracer recorded a phantom line-1 entry for it (Python fires an implicit trace
+    event when importing empty __init__.py files).  Before the fix, the fallback
+    ``len(lines)`` would yield 1 instead of 0, inflating the aggregate denominator.
+    """
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    pkg = rootdir / "pkg"
+    pkg.mkdir()
+    init_file = pkg / "__init__.py"
+    init_file.write_text("")  # empty — no executable statements
+
+    store = SessionStore()
+    # Simulate the phantom trace event Python generates for empty __init__.py
+    store.get_or_create((str(init_file), 1)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "index.html").read_text()
+
+    import re
+    # The file row renders as: <a href="...">__init__.py</a></td><td>{stmts}</td>
+    # Match the stmt count cell that immediately follows the __init__.py link.
+    match = re.search(r'__init__\.py</a></td><td>(\d+)</td>', content)
+    assert match is not None, "__init__.py row not found in index"
+    assert match.group(1) == "0", f"expected 0 stmts for empty __init__.py, got {match.group(1)}"
+
+
+def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
+    """For a file that does not exist on disk, total_stmts should fall back to
+    the number of lines recorded in the store (the pre-fix behaviour for
+    genuinely missing files must be preserved).
+    """
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    missing = str(rootdir / "missing.py")   # never created on disk
+
+    store = SessionStore()
+    store.get_or_create((missing, 3)).incidental_executions = 1
+    store.get_or_create((missing, 7)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    write_html(store, config, out_dir)
+    content = (out_dir / "index.html").read_text()
+
+    # Falls back to len(lines) = 2
+    assert "<td>2</td>" in content
+
+
 def test_unreadable_source_falls_back_gracefully(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
