@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import html as _html
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
@@ -244,7 +245,7 @@ def _missed_ranges(missed: list[int]) -> str:
 
 
 def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
-    """Return line numbers of executed if/while-statements where not all branches were taken.
+    """Return line numbers where not all branches were taken.
 
     For each ``if`` or ``while`` node whose line was executed:
     - *true branch not taken*: the first line of the body was never executed.
@@ -255,6 +256,13 @@ def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
     For ``while`` loops specifically, ``cond_count == body_count`` means the condition
     was always True and the loop never exited normally (it left via exception, return,
     or break), so the false branch is considered not taken — matching coverage.py behaviour.
+
+    For ``match`` statements (Python 3.10+), partial marking lands on the ``case`` pattern
+    lines, not on the ``match`` line itself — matching coverage.py behaviour.  A case line
+    is partial when it was reached but at least one of its exits was never taken:
+    - *body not taken*: the case pattern was reached but never matched.
+    - *next case not taken* (non-last cases only): the case always matched, so the next
+      case was never evaluated.
     """
     def _count(lineno: int) -> int:
         ld = lines.get(lineno)
@@ -281,6 +289,24 @@ def _get_partial_branches(path: str, lines: dict[int, LineData]) -> set[int]:
             false_taken = if_count > body_count
         if not true_taken or not false_taken:
             result.add(node.lineno)
+
+    if sys.version_info >= (3, 10):
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Match):
+                continue
+            for i, case in enumerate(node.cases):
+                case_line = case.pattern.lineno
+                if _count(case_line) == 0:
+                    continue  # missing, not partial
+                body_taken = _count(case.body[0].lineno) > 0
+                if i < len(node.cases) - 1:
+                    next_case_taken = _count(node.cases[i + 1].pattern.lineno) > 0
+                    if not body_taken or not next_case_taken:
+                        result.add(case_line)
+                else:
+                    if not body_taken:
+                        result.add(case_line)
+
     return result
 
 

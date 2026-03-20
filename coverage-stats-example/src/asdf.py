@@ -96,6 +96,17 @@ def weird_case_multiple_statements_on_one_line(a, b):
     e = 5 if a == 2 else 0; r = 0 if a == 2 else -1
 
 
+def weird_corner_cases_5_match(value):
+    """Match statement partial coverage test."""
+    match value:
+        case 1:
+            return "one"
+        case 2:
+            return "two"
+        case _:
+            return "other"
+
+
 def not_covered(a, b):
     """The docstring."""
     class TotallyNotCovered:

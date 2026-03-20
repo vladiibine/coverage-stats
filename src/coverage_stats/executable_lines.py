@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import sys
 
 
 def get_executable_lines(path: str) -> set[int]:
@@ -25,6 +26,12 @@ def get_executable_lines(path: str) -> set[int]:
     for node in ast.walk(tree):
         if isinstance(node, ast.stmt):
             result.add(node.lineno)
+
+    if sys.version_info >= (3, 10):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Match):
+                for case in node.cases:
+                    result.add(case.pattern.lineno)
 
     return result - _docstring_lines(tree)
 
