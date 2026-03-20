@@ -19,4 +19,5 @@ testpaths = ["tests"]
 source = ["src"]
 
 [tool.coverage.report]
+precision = 6
 show_missing = true

@@ -201,12 +201,13 @@ def _build_file_tree(entries: list[_FileEntry]) -> _FolderNode:
     return root
 
 
-def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str) -> list[str]:
+def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str, precision: int = 1) -> list[str]:
     """DFS traversal: emit a folder row then its children (subfolders, then files)."""
     rows: list[str] = []
     parent_attr = f' data-parent="{parent_id}"' if parent_id else ""
     folder_indent = depth * 24 + 4
     file_indent = depth * 24 + 28
+    fmt = f".{precision}f"
 
     for name in sorted(node.subfolders):
         sub = node.subfolders[name]
@@ -227,12 +228,12 @@ def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str) -> list[str
             f'<td style="padding-left:{folder_indent}px">'
             f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
             f'<td>{total}</td>'
-            f'<td>{total_pct:.1f}%</td>'
-            f'<td>{delib_pct:.1f}%</td>'
-            f'<td>{incid_pct:.1f}%</td>'
+            f'<td>{total_pct:{fmt}}%</td>'
+            f'<td>{delib_pct:{fmt}}%</td>'
+            f'<td>{incid_pct:{fmt}}%</td>'
             f'</tr>'
         )
-        rows.extend(_render_tree_rows(sub, depth + 1, fid))
+        rows.extend(_render_tree_rows(sub, depth + 1, fid, precision))
 
     for entry in sorted(node.files, key=lambda f: f.rel_path):
         filename = entry.rel_path.split("/")[-1]
@@ -246,9 +247,9 @@ def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str) -> list[str
             f'<td style="padding-left:{file_indent}px">'
             f'<a href="{_html.escape(entry.file_html_name)}">{_html.escape(filename)}</a></td>'
             f'<td>{total}</td>'
-            f'<td>{total_pct:.1f}%</td>'
-            f'<td>{delib_pct:.1f}%</td>'
-            f'<td>{incid_pct:.1f}%</td>'
+            f'<td>{total_pct:{fmt}}%</td>'
+            f'<td>{delib_pct:{fmt}}%</td>'
+            f'<td>{incid_pct:{fmt}}%</td>'
             f'</tr>'
         )
 
@@ -364,8 +365,9 @@ def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
 
 def render_file_stats(total_stmts: int, covered: int, total_pct: float,
                       deliberate_cnt: int, deliberate_pct: float, incidental_cnt: int, incidental_pct: float,
-                      partial_cnt: int = 0) -> str:
+                      partial_cnt: int = 0, precision: int = 1) -> str:
     missed = total_stmts - covered
+    fmt = f".{precision}f"
     partial_cell = (
         f'<div class="stat"><div class="stat-value" style="color:#e65100">{partial_cnt}</div>'
         f'<div class="stat-label">partial</div></div>'
@@ -375,12 +377,12 @@ def render_file_stats(total_stmts: int, covered: int, total_pct: float,
         f'<div class="stat"><div class="stat-value">{total_stmts}</div><div class="stat-label">statements</div></div>'
         f'<div class="stat"><div class="stat-value">{missed}</div><div class="stat-label">missing</div></div>'
         f'<div class="stat"><div class="stat-value">{covered}</div><div class="stat-label">covered</div></div>'
-        f'<div class="stat"><div class="stat-value">{total_pct:.1f}%</div><div class="stat-label">total %</div></div>'
+        f'<div class="stat"><div class="stat-value">{total_pct:{fmt}}%</div><div class="stat-label">total %</div></div>'
         f'{partial_cell}'
         f'<div class="stat"><div class="stat-value">{deliberate_cnt}</div><div class="stat-label">deliberate</div></div>'
-        f'<div class="stat"><div class="stat-value">{deliberate_pct:.1f}%</div><div class="stat-label">deliberate %</div></div>'
+        f'<div class="stat"><div class="stat-value">{deliberate_pct:{fmt}}%</div><div class="stat-label">deliberate %</div></div>'
         f'<div class="stat"><div class="stat-value">{incidental_cnt}</div><div class="stat-label">incidental</div></div>'
-        f'<div class="stat"><div class="stat-value">{incidental_pct:.1f}%</div><div class="stat-label">incidental %</div></div>'
+        f'<div class="stat"><div class="stat-value">{incidental_pct:{fmt}}%</div><div class="stat-label">incidental %</div></div>'
         f'</div>'
     )
 
@@ -499,7 +501,7 @@ def _group_by_rel_path(store: SessionStore, config: pytest.Config) -> dict[str, 
 
 
 def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
-                     executable: set[int], out_path: Path) -> None:
+                     executable: set[int], out_path: Path, precision: int = 1) -> None:
     try:
         source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()
         source_map = {i + 1: line for i, line in enumerate(source_lines)}
@@ -525,7 +527,7 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
     )
     partial_cnt = len(branch_analysis.partial & executable)
 
-    stats_html = render_file_stats(total_stmts, covered_stmts, total_pct, deliberate_covered, deliberate_pct, incidental_covered, incidental_pct, partial_cnt)
+    stats_html = render_file_stats(total_stmts, covered_stmts, total_pct, deliberate_covered, deliberate_pct, incidental_covered, incidental_pct, partial_cnt, precision)
 
     rows = []
     for lineno in all_linenos:
@@ -536,7 +538,7 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
     out_path.write_text(render_file_page(rel_path, stats_html, "".join(rows)), encoding="utf-8")
 
 
-def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> None:
+def write_html(store: SessionStore, config: pytest.Config, output_dir: Path, precision: int = 1) -> None:
     files = _group_by_rel_path(store, config)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -566,7 +568,7 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
             1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0
         )
         branch_analysis = _analyze_branches(abs_path, lines)
-        _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name)
+        _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name, precision)
         file_entries.append(_FileEntry(
             rel_path=rel_path,
             file_html_name=file_html_name,
@@ -579,7 +581,7 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path) -> 
         ))
 
     tree = _build_file_tree(file_entries)
-    rows_html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    rows_html = "".join(_render_tree_rows(tree, depth=0, parent_id="", precision=precision))
     (output_dir / "index.html").write_text(
         render_index_page(rows_html), encoding="utf-8"
     )

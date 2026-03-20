@@ -220,6 +220,8 @@ class CoverageStatsPlugin:
         formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
         out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")
         output_dir = Path(out_str).resolve()
+        precision_opt = config.getoption("--coverage-stats-precision")
+        precision: int = int(precision_opt) if precision_opt is not None else int(config.getini("coverage_stats_precision") or 1)
         for fmt in formats:
             if fmt == "json":
                 from coverage_stats.reporters.json_reporter import write_json
@@ -229,7 +231,7 @@ class CoverageStatsPlugin:
                 write_csv(self._store, config, output_dir)
             elif fmt == "html":
                 from coverage_stats.reporters.html import write_html
-                write_html(self._store, config, output_dir)
+                write_html(self._store, config, output_dir, precision)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -251,6 +253,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Output directory for coverage-stats reports",
     )
+    parser.addoption(
+        "--coverage-stats-precision",
+        type=int,
+        default=None,
+        help="Decimal places for percentages in HTML reports (default: 1)",
+    )
     parser.addini(
         "coverage_stats_source",
         help="Source directories to profile (space-separated). Defaults to 'src'.",
@@ -265,6 +273,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "coverage_stats_output_dir",
         help="Output directory for coverage-stats reports",
         default="coverage-stats-report",
+    )
+    parser.addini(
+        "coverage_stats_precision",
+        help="Decimal places for percentages in HTML reports (default: 1)",
+        default="1",
     )
 
 
