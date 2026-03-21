@@ -15,7 +15,7 @@ class DollarsvReporter:
 def write_dollarsv(report: CoverageReport, output_dir: Path) -> None:
     rows = []
     for fr in sorted(report.files, key=lambda f: f.summary.rel_path):
-        for lr in sorted(fr.lines, key=lambda l: l.lineno):
+        for lr in sorted(fr.lines, key=lambda line_report: line_report.lineno):
             if lr.incidental_executions > 0 or lr.deliberate_executions > 0:
                 rows.append((fr.summary.rel_path, lr.lineno, lr.incidental_executions,
                              lr.deliberate_executions, lr.incidental_asserts,

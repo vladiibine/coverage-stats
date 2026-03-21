@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.html import (
+    HtmlReporter,
     write_html,
     render_line,
     render_index_page,
     render_file_page,
     render_file_stats,
     _FileEntry,
-    _build_file_tree,
     _render_tree_rows,
 )
 from coverage_stats.reporters.report_data import build_report
@@ -394,7 +394,7 @@ def test_build_file_tree_groups_by_folder():
         _FileEntry("src/a.py", "src__a.py.html", 10, 7, 0, 0, 0, 0, 5, 3),
         _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 0, 0, 0, 0, 2, 4),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     assert "src" in tree.subfolders
     src_node = tree.subfolders["src"]
     assert len(src_node.files) == 1
@@ -408,7 +408,7 @@ def test_folder_node_aggregates_stats():
         _FileEntry("src/a.py", "src__a.py.html", 10, 7, 4, 3, 2, 1, 5, 3),
         _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 2, 1, 1, 0, 2, 4),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     src = tree.subfolders["src"]
     assert src.agg_total_stmts() == 18
     assert src.agg_total_covered() == 12
@@ -424,7 +424,7 @@ def test_render_tree_rows_contains_link_and_folder():
     entries = [
         _FileEntry("src/foo.py", "src__foo.py.html", 3, 2, 0, 0, 0, 0, 1, 2),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert 'href="src__foo.py.html"' in html
     assert "foo.py" in html
@@ -435,7 +435,7 @@ def test_render_tree_rows_pct_calculation():
     entries = [
         _FileEntry("src/x.py", "src__x.py.html", 3, 2, 0, 0, 0, 0, 1, 0),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "33.3%" in html  # 1/3 deliberate on file row
     assert "66.7%" in html  # 2/3 total on file row
@@ -474,7 +474,7 @@ def test_folder_node_agg_total_covered():
         _FileEntry("a/x.py", "a__x.py.html", 10, 8, 0, 0, 0, 0, 6, 3),
         _FileEntry("a/y.py", "a__y.py.html", 5, 3, 0, 0, 0, 0, 1, 2),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     node = tree.subfolders["a"]
     assert node.agg_total_covered() == 11  # 8 + 3
 
@@ -483,7 +483,7 @@ def test_render_tree_rows_total_pct_column():
     entries = [
         _FileEntry("src/z.py", "src__z.py.html", 4, 3, 0, 0, 0, 0, 2, 1),
     ]
-    tree = _build_file_tree(entries)
+    tree = HtmlReporter._build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "75.0%" in html   # 3/4 total on file row
     assert "50.0%" in html   # 2/4 deliberate on file row
@@ -492,3 +492,171 @@ def test_render_tree_rows_total_pct_column():
 def test_index_page_has_total_pct_header():
     result = render_index_page("")
     assert "Total %" in result
+
+
+# ---------------------------------------------------------------------------
+# HtmlReporter._missed_ranges
+# ---------------------------------------------------------------------------
+
+
+def test_missed_ranges_empty():
+    assert HtmlReporter()._missed_ranges([]) == ""
+
+
+def test_missed_ranges_single():
+    assert HtmlReporter()._missed_ranges([7]) == "7"
+
+
+def test_missed_ranges_consecutive_collapsed_to_range():
+    assert HtmlReporter()._missed_ranges([3, 4, 5]) == "3-5"
+
+
+def test_missed_ranges_non_consecutive():
+    assert HtmlReporter()._missed_ranges([1, 3, 5]) == "1, 3, 5"
+
+
+def test_missed_ranges_mixed():
+    assert HtmlReporter()._missed_ranges([1, 2, 5, 6, 7, 10]) == "1-2, 5-7, 10"
+
+
+# ---------------------------------------------------------------------------
+# HtmlReporter._build_file_tree as static method
+# ---------------------------------------------------------------------------
+
+
+def test_build_file_tree_callable_on_class():
+    entries = [_FileEntry("src/a.py", "src__a.py.html", 1, 1, 0, 0, 0, 0, 1, 0)]
+    tree = HtmlReporter._build_file_tree(entries)
+    assert "src" in tree.subfolders
+
+
+def test_build_file_tree_callable_on_instance():
+    entries = [_FileEntry("src/a.py", "src__a.py.html", 1, 1, 0, 0, 0, 0, 1, 0)]
+    tree = HtmlReporter()._build_file_tree(entries)
+    assert "src" in tree.subfolders
+
+
+# ---------------------------------------------------------------------------
+# HtmlReporter CSS/JS class attributes
+# ---------------------------------------------------------------------------
+
+
+def test_css_class_attribute_appears_in_index():
+    result = HtmlReporter().render_index_page("")
+    assert HtmlReporter.CSS in result
+
+
+def test_js_class_attribute_appears_in_index():
+    result = HtmlReporter().render_index_page("")
+    assert HtmlReporter.JS in result
+
+
+def test_extra_css_empty_by_default():
+    assert HtmlReporter.EXTRA_CSS == ""
+
+
+def test_extra_js_empty_by_default():
+    assert HtmlReporter.EXTRA_JS == ""
+
+
+def test_extra_css_injected_when_set_on_subclass():
+    class StyledReporter(HtmlReporter):
+        EXTRA_CSS = "body { background: black; }"
+
+    result = StyledReporter().render_index_page("")
+    assert "background: black" in result
+
+
+def test_extra_js_injected_when_set_on_subclass():
+    class TrackedReporter(HtmlReporter):
+        EXTRA_JS = "console.log('loaded');"
+
+    result = TrackedReporter().render_index_page("")
+    assert "console.log('loaded');" in result
+
+
+def test_css_override_on_subclass_replaces_default():
+    class MinimalReporter(HtmlReporter):
+        CSS = "body { margin: 0; }"
+
+    result = MinimalReporter().render_index_page("")
+    assert "body { margin: 0; }" in result
+    assert HtmlReporter.CSS not in result
+
+
+# ---------------------------------------------------------------------------
+# HtmlReporter method overrides propagate through write()
+# ---------------------------------------------------------------------------
+
+
+def test_subclass_render_line_override_is_called(tmp_path):
+    """write() must call self.render_line(), not the module-level shim."""
+    class MarkedReporter(HtmlReporter):
+        def render_line(self, lineno, source_text, ld, executable, partial=False) -> str:
+            return f'<tr class="custom-row"><td>{lineno}</td></tr>'
+
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
+    config = make_config(rootdir)
+    report = build_report(store, config)
+
+    out_dir = tmp_path / "out"
+    MarkedReporter().write(report, out_dir)
+    content = (out_dir / "mod.py.html").read_text()
+    assert "custom-row" in content
+
+
+def test_subclass_render_index_page_override_is_called(tmp_path):
+    """write() must call self.render_index_page(), not the module-level shim."""
+    class BrandedReporter(HtmlReporter):
+        def render_index_page(self, rows_html: str) -> str:
+            return f"<html><body><h1>My Company Coverage</h1>{rows_html}</body></html>"
+
+    store = SessionStore()
+    config = make_config(tmp_path)
+    report = build_report(store, config)
+
+    out_dir = tmp_path / "out"
+    BrandedReporter().write(report, out_dir)
+    content = (out_dir / "index.html").read_text()
+    assert "My Company Coverage" in content
+
+
+def test_subclass_render_file_stats_override_is_called(tmp_path):
+    """_write_file_page() must call self.render_file_stats()."""
+    class NoStatsReporter(HtmlReporter):
+        def render_file_stats(self, *args, **kwargs) -> str:
+            return '<div id="custom-stats"></div>'
+
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
+    config = make_config(rootdir)
+    report = build_report(store, config)
+
+    out_dir = tmp_path / "out"
+    NoStatsReporter().write(report, out_dir)
+    content = (out_dir / "mod.py.html").read_text()
+    assert "custom-stats" in content
+
+
+def test_subclass_render_tree_rows_override_is_called(tmp_path):
+    """write() must call self._render_tree_rows(), so a subclass can customise the index table."""
+    class FlatReporter(HtmlReporter):
+        def _render_tree_rows(self, node, depth, parent_id) -> list[str]:
+            return ['<tr class="flat-row"><td>flat</td></tr>']
+
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
+    config = make_config(rootdir)
+    report = build_report(store, config)
+
+    out_dir = tmp_path / "out"
+    FlatReporter().write(report, out_dir)
+    content = (out_dir / "index.html").read_text()
+    assert "flat-row" in content

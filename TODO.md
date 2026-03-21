@@ -33,10 +33,10 @@ Non-functional requirements:
   * clone some open source projects, run its tests, check the coverage for it 
   * publish on pypi
   * make it extensible (allow plugging into the stats collection)
-  * plugging into the HTML generation
+  * [v] plugging into the HTML generation
     * so the CoverageStatsPlugin, on session finish calls the reporter directly
-  * allow creating other reporters
-    * so the CoverageStatsPlugin, on session finish calls the reporter directly
+  * [v]allow creating other reporters
+    * [v]so the CoverageStatsPlugin, on session finish calls the reporter directly
   * [v] add tox, to test on all supported python versions
     * !used `nox` instead of tox. Should be ok. nox is better integrated with `uv`.
   * [v] check that performance is not seriously degraded
