@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -228,18 +229,33 @@ class CoverageStatsPlugin:
         output_dir = Path(out_str).resolve()
         precision_opt = config.getoption("--coverage-stats-precision")
         precision: int = int(precision_opt) if precision_opt is not None else int(config.getini("coverage_stats_precision") or 1)
+        reporter_str = config.getoption("--coverage-stats-reporter") or config.getini("coverage_stats_reporters")
+        reporter_paths = [r.strip() for r in (reporter_str or "").split(",") if r.strip()]
+
         from coverage_stats.reporters.report_data import build_report
-        report = build_report(self._store, config)
+        from coverage_stats.reporters import get_reporter, load_reporter_class, _instantiate_reporter
+        known_kwargs: dict[str, object] = {"precision": precision}
+
+        reporters = []
         for fmt in formats:
-            if fmt == "html":
-                from coverage_stats.reporters.html import write_html
-                write_html(report, output_dir, precision)
-            elif fmt == "csv":
-                from coverage_stats.reporters.csv_reporter import write_csv
-                write_csv(report, output_dir)
-            elif fmt == "json":
-                from coverage_stats.reporters.json_reporter import write_json
-                write_json(report, output_dir)
+            reporter = get_reporter(fmt, known_kwargs)
+            if reporter is not None:
+                reporters.append((fmt, reporter))
+            else:
+                warnings.warn(f"coverage-stats: unknown format {fmt!r}, skipping")
+        for path in reporter_paths:
+            try:
+                cls = load_reporter_class(path)
+                reporters.append((path, _instantiate_reporter(cls, known_kwargs)))
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: failed to load reporter {path!r}: {exc}")
+
+        report = build_report(self._store, config)
+        for name, reporter in reporters:
+            try:
+                reporter.write(report, output_dir)
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: reporter {name!r} failed: {exc}")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -267,6 +283,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Decimal places for percentages in HTML reports (default: 1)",
     )
+    parser.addoption(
+        "--coverage-stats-reporter",
+        type=str,
+        default=None,
+        help="Comma-separated list of reporter classes (module.path.ClassName)",
+    )
     parser.addini(
         "coverage_stats_source",
         help="Source directories to profile (space-separated). Defaults to 'src'.",
@@ -286,6 +308,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "coverage_stats_precision",
         help="Decimal places for percentages in HTML reports (default: 1)",
         default="1",
+    )
+    parser.addini(
+        "coverage_stats_reporters",
+        help="Comma-separated list of reporter classes (module.path.ClassName)",
+        default="",
     )
 
 

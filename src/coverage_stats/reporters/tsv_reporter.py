@@ -6,12 +6,13 @@ from pathlib import Path
 from coverage_stats.reporters.report_data import CoverageReport
 
 
-class CsvReporter:
+class TsvReporter:
+    """TSV reporter for coverage stats."""
     def write(self, report: CoverageReport, output_dir: Path) -> None:
-        write_csv(report, output_dir)
+        write_tsv(report, output_dir)
 
 
-def write_csv(report: CoverageReport, output_dir: Path) -> None:
+def write_tsv(report: CoverageReport, output_dir: Path) -> None:
     rows = []
     for fr in sorted(report.files, key=lambda f: f.summary.rel_path):
         for lr in sorted(fr.lines, key=lambda l: l.lineno):
@@ -21,8 +22,8 @@ def write_csv(report: CoverageReport, output_dir: Path) -> None:
                              lr.deliberate_asserts, lr.incidental_tests, lr.deliberate_tests))
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / "coverage-stats.csv").open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+    with (output_dir / "coverage-stats.tsv").open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
         writer.writerow(["file", "lineno", "incidental_executions", "deliberate_executions",
                          "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"])
         for row in rows:

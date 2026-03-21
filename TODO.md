@@ -37,7 +37,8 @@ Non-functional requirements:
     * so the CoverageStatsPlugin, on session finish calls the reporter directly
   * allow creating other reporters
     * so the CoverageStatsPlugin, on session finish calls the reporter directly
-  * add tox, to test on all supported python versions
+  * [v] add tox, to test on all supported python versions
+    * !used `nox` instead of tox. Should be ok. nox is better integrated with `uv`.
   * [v] check that performance is not seriously degraded
   * [v] the example project, move it 
   * [v] the small project - turn it into a larger one, with lots of lines, files and tests (can be copy-pasted)

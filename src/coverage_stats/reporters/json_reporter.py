@@ -6,6 +6,11 @@ from pathlib import Path
 from coverage_stats.reporters.report_data import CoverageReport
 
 
+class JsonReporter:
+    def write(self, report: CoverageReport, output_dir: Path) -> None:
+        write_json(report, output_dir)
+
+
 def write_json(report: CoverageReport, output_dir: Path) -> None:
     result: dict[str, object] = {"files": {}}
     for fr in report.files:

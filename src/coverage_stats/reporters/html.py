@@ -436,6 +436,14 @@ def _write_file_page(file_report: FileReport, out_path: Path, precision: int = 1
     out_path.write_text(render_file_page(s.rel_path, stats_html, "".join(rows)), encoding="utf-8")
 
 
+class HtmlReporter:
+    def __init__(self, precision: int = 1) -> None:
+        self.precision = precision
+
+    def write(self, report: CoverageReport, output_dir: Path) -> None:
+        write_html(report, output_dir, self.precision)
+
+
 def write_html(report: CoverageReport, output_dir: Path, precision: int = 1) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
