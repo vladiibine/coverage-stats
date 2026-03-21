@@ -6,7 +6,7 @@ import textwrap
 import pytest
 
 from coverage_stats.store import LineData
-from coverage_stats.reporters.html import _analyze_branches
+from coverage_stats.reporters.report_data import _analyze_branches
 from coverage_stats.executable_lines import get_executable_lines
 
 

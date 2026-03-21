@@ -228,16 +228,18 @@ class CoverageStatsPlugin:
         output_dir = Path(out_str).resolve()
         precision_opt = config.getoption("--coverage-stats-precision")
         precision: int = int(precision_opt) if precision_opt is not None else int(config.getini("coverage_stats_precision") or 1)
+        from coverage_stats.reporters.report_data import build_report
+        report = build_report(self._store, config)
         for fmt in formats:
-            if fmt == "json":
-                from coverage_stats.reporters.json_reporter import write_json
-                write_json(self._store, config, output_dir)
+            if fmt == "html":
+                from coverage_stats.reporters.html import write_html
+                write_html(report, output_dir, precision)
             elif fmt == "csv":
                 from coverage_stats.reporters.csv_reporter import write_csv
-                write_csv(self._store, config, output_dir)
-            elif fmt == "html":
-                from coverage_stats.reporters.html import write_html
-                write_html(self._store, config, output_dir, precision)
+                write_csv(report, output_dir)
+            elif fmt == "json":
+                from coverage_stats.reporters.json_reporter import write_json
+                write_json(report, output_dir)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

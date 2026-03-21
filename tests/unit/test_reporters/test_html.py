@@ -14,6 +14,7 @@ from coverage_stats.reporters.html import (
     _build_file_tree,
     _render_tree_rows,
 )
+from coverage_stats.reporters.report_data import build_report
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
@@ -28,7 +29,8 @@ def make_config(rootdir: Path) -> SimpleNamespace:
 def test_empty_store_writes_index(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
-    write_html(store, config, tmp_path / "out")
+    report = build_report(store, config)
+    write_html(report, tmp_path / "out")
     assert (tmp_path / "out" / "index.html").exists()
 
 
@@ -36,7 +38,8 @@ def test_empty_store_no_per_file_pages(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     html_files = list(out_dir.glob("*.html"))
     assert html_files == [out_dir / "index.html"]
 
@@ -49,7 +52,8 @@ def test_single_file_writes_per_file_page(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     assert (out_dir / "src__foo.py.html").exists()
 
 
@@ -61,7 +65,8 @@ def test_index_contains_table_and_folder_row(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert "<table>" in content
     assert "folder-row" in content
@@ -75,7 +80,8 @@ def test_index_contains_folder_name(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert "src" in content
 
@@ -90,7 +96,8 @@ def test_multiple_folders_appear_in_single_table(tmp_path):
     store.get_or_create((str(rootdir / "lib" / "b.py"), 2)).deliberate_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert content.count("<table>") == 1  # single table
     assert content.count('class="folder-row"') == 2  # one row per top-level folder
@@ -104,7 +111,8 @@ def test_per_file_page_contains_lineno(tmp_path):
     store.get_or_create((abs_file, 42)).incidental_executions = 3
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "42" in content
 
@@ -117,7 +125,8 @@ def test_deliberate_line_gets_green_class(tmp_path):
     store.get_or_create((abs_file, 5)).deliberate_executions = 2
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "deliberate" in content
 
@@ -132,7 +141,8 @@ def test_incidental_only_line_gets_yellow_class(tmp_path):
     ld.deliberate_executions = 0
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "incidental" in content
 
@@ -150,7 +160,8 @@ def test_per_file_page_shows_all_source_lines(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     # Every line number 1-5 must appear
@@ -171,7 +182,8 @@ def test_per_file_page_shows_uncovered_source_text(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     assert "uncovered_line" in content
@@ -190,7 +202,8 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     # Row for uncovered line 2 should be a plain <tr> without a class attribute on it
@@ -218,7 +231,8 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
     # The index must show 10 (total executable stmts), not 2 (tracked stmts)
@@ -245,7 +259,8 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
     import re
@@ -271,7 +286,8 @@ def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
     # Falls back to len(lines) = 2
@@ -288,7 +304,8 @@ def test_unreadable_source_falls_back_gracefully(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     # Must not raise
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     assert (out_dir / "nonexistent.py.html").exists()
     content = (out_dir / "nonexistent.py.html").read_text()
     assert "1" in content
@@ -302,7 +319,8 @@ def test_path_outside_rootdir_fallback(tmp_path):
     store.get_or_create((outside_file, 10)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     # index.html should exist and contain the absolute path
     content = (out_dir / "index.html").read_text()
     assert "baz.py" in content
@@ -313,7 +331,8 @@ def test_output_dir_created_if_missing(tmp_path):
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
-    write_html(store, config, out_dir)
+    report = build_report(store, config)
+    write_html(report, out_dir)
     assert (out_dir / "index.html").exists()
 
 

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.csv_reporter import write_csv
+from coverage_stats.reporters.report_data import build_report
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
@@ -21,7 +22,8 @@ def test_empty_store_writes_header_only(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "out"
-    write_csv(store, config, out_dir)
+    report = build_report(store, config)
+    write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
     assert len(rows) == 1
@@ -41,7 +43,8 @@ def test_correct_column_order(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_csv(store, config, out_dir)
+    report = build_report(store, config)
+    write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
     assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"]
@@ -62,7 +65,8 @@ def test_rows_sorted_by_file_then_lineno(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_csv(store, config, out_dir)
+    report = build_report(store, config)
+    write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
     data_rows = rows[1:]
@@ -82,7 +86,8 @@ def test_path_outside_rootdir_fallback(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    write_csv(store, config, out_dir)
+    report = build_report(store, config)
+    write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
     assert len(rows) == 2
@@ -95,5 +100,6 @@ def test_output_dir_created_if_missing(tmp_path):
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
-    write_csv(store, config, out_dir)
+    report = build_report(store, config)
+    write_csv(report, out_dir)
     assert (out_dir / "coverage-stats.csv").exists()

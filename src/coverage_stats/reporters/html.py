@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import ast
 import html as _html
-import sys
-from collections import defaultdict
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
-import pytest
 
-from coverage_stats.executable_lines import get_executable_lines
-from coverage_stats.store import LineData, SessionStore
+from coverage_stats.store import LineData
+from coverage_stats.reporters.report_data import (
+    CoverageReport,
+    FileReport,
+)
 
 _CSS = """
 body {
@@ -286,141 +285,6 @@ def _missed_ranges(missed: list[int]) -> str:
     return ", ".join(ranges)
 
 
-@dataclass
-class _BranchAnalysis:
-    partial: set[int]    # line numbers with partial branch coverage
-    arcs_total: int      # total branch arc count
-    arcs_covered: int    # branch arcs that were taken
-    arcs_deliberate: int # branch arcs taken during deliberate tests
-    arcs_incidental: int # branch arcs taken during incidental tests
-
-
-def _is_wildcard_case(case: ast.match_case) -> bool:
-    """Mirror coverage.py's wildcard detection logic."""
-    pattern = case.pattern
-    while isinstance(pattern, ast.MatchOr):
-        pattern = pattern.patterns[-1]
-    while isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
-        pattern = pattern.pattern
-    return isinstance(pattern, ast.MatchAs) and pattern.pattern is None and case.guard is None
-
-
-def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
-    """Analyze branch coverage, returning partial line numbers and arc counts.
-
-    Arc counting mirrors coverage.py's branch-inclusive formula so that:
-        (stmts_covered + arcs_covered) / (stmts_total + arcs_total)
-    matches coverage.py's "Cover %" when run with --cov-branch.
-
-    Arc rules:
-    - if/while/for: 2 arcs each (true branch, false branch); unreached still
-      contributes to arcs_total but 0 to arcs_covered.
-    - match non-last case: 2 arcs (body taken, next case reached).
-    - match last wildcard case: 0 arcs (always matches — no branching).
-    - match last non-wildcard case: 1 arc (body taken).
-    """
-    def _count(lineno: int) -> int:
-        ld = lines.get(lineno)
-        return (ld.incidental_executions + ld.deliberate_executions) if ld else 0
-
-    def _del_count(lineno: int) -> int:
-        ld = lines.get(lineno)
-        return ld.deliberate_executions if ld else 0
-
-    def _inc_count(lineno: int) -> int:
-        ld = lines.get(lineno)
-        return ld.incidental_executions if ld else 0
-
-    try:
-        source = open(path, encoding="utf-8", errors="replace").read()
-        tree = ast.parse(source)
-    except (OSError, SyntaxError):
-        return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0, arcs_deliberate=0, arcs_incidental=0)
-
-    partial: set[int] = set()
-    arcs_total = 0
-    arcs_covered = 0
-    arcs_deliberate = 0
-    arcs_incidental = 0
-
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.If, ast.While, ast.For)):
-            continue
-        arcs_total += 2
-        if_count = _count(node.lineno)
-        if if_count == 0:
-            continue
-        body_lineno = node.body[0].lineno
-        body_count = _count(body_lineno)
-        true_taken = body_count > 0
-        if node.orelse:
-            orelse_lineno = node.orelse[0].lineno
-            false_taken = _count(orelse_lineno) > 0
-            if true_taken:
-                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-            if false_taken:
-                arcs_deliberate += 1 if _del_count(orelse_lineno) > 0 else 0
-                arcs_incidental += 1 if _inc_count(orelse_lineno) > 0 else 0
-        else:
-            false_taken = if_count > body_count
-            if true_taken:
-                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-            if false_taken:
-                arcs_deliberate += 1 if _del_count(node.lineno) > _del_count(body_lineno) else 0
-                arcs_incidental += 1 if _inc_count(node.lineno) > _inc_count(body_lineno) else 0
-        arcs_covered += (1 if true_taken else 0) + (1 if false_taken else 0)
-        if not true_taken or not false_taken:
-            partial.add(node.lineno)
-
-    if sys.version_info >= (3, 10):
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Match):
-                continue
-            for i, case in enumerate(node.cases):
-                case_line = case.pattern.lineno
-                is_last = i == len(node.cases) - 1
-                if is_last and _is_wildcard_case(case):
-                    # Wildcard always matches — no branching arcs
-                    continue
-                elif is_last:
-                    arcs_total += 1
-                    if _count(case_line) > 0:
-                        body_lineno = case.body[0].lineno
-                        body_taken = _count(body_lineno) > 0
-                        arcs_covered += 1 if body_taken else 0
-                        if body_taken:
-                            arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                            arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                        if not body_taken:
-                            partial.add(case_line)
-                else:
-                    arcs_total += 2
-                    if _count(case_line) > 0:
-                        body_lineno = case.body[0].lineno
-                        next_case_lineno = node.cases[i + 1].pattern.lineno
-                        body_taken = _count(body_lineno) > 0
-                        next_case_taken = _count(next_case_lineno) > 0
-                        arcs_covered += (1 if body_taken else 0) + (1 if next_case_taken else 0)
-                        if body_taken:
-                            arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                            arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                        if next_case_taken:
-                            arcs_deliberate += 1 if _del_count(next_case_lineno) > 0 else 0
-                            arcs_incidental += 1 if _inc_count(next_case_lineno) > 0 else 0
-                        if not body_taken or not next_case_taken:
-                            partial.add(case_line)
-
-    return _BranchAnalysis(
-        partial=partial,
-        arcs_total=arcs_total,
-        arcs_covered=arcs_covered,
-        arcs_deliberate=arcs_deliberate,
-        arcs_incidental=arcs_incidental,
-    )
-
-
 def render_file_stats(total_stmts: int, covered: int, total_pct: float,
                       deliberate_cnt: int, deliberate_pct: float, incidental_cnt: int, incidental_pct: float,
                       partial_cnt: int = 0, precision: int = 1) -> str:
@@ -546,98 +410,51 @@ def render_file_page(rel_path: str, stats_html: str, lines_html: str) -> str:
     )
 
 
-def _group_by_rel_path(store: SessionStore, config: pytest.Config) -> dict[str, dict[int, LineData]]:
-    files: dict[str, dict[int, LineData]] = defaultdict(dict)
-    for (abs_path, lineno), ld in store._data.items():
-        try:
-            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
-        except ValueError:
-            rel = Path(abs_path).as_posix()
-        files[rel][lineno] = ld
-    return files
-
-
-
-def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
-                     executable: set[int], out_path: Path, precision: int = 1) -> None:
-    try:
-        source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()
-        source_map = {i + 1: line for i, line in enumerate(source_lines)}
-        all_linenos: list[int] = list(range(1, len(source_lines) + 1))
-    except Exception:
-        source_map = {}
-        all_linenos = sorted(lines.keys())
-
-    total_stmts = len(executable)
-    covered_stmts = sum(
-        1 for ln in executable
-        if ln in lines and (lines[ln].deliberate_executions > 0 or lines[ln].incidental_executions > 0)
+def _write_file_page(file_report: FileReport, out_path: Path, precision: int = 1) -> None:
+    s = file_report.summary
+    stats_html = render_file_stats(
+        s.total_stmts, s.total_covered, s.total_pct,
+        s.deliberate_covered, s.deliberate_pct,
+        s.incidental_covered, s.incidental_pct,
+        s.partial_count, precision,
     )
-    deliberate_covered = sum(1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0)
-    incidental_covered = sum(1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0)
-    branch_analysis = _analyze_branches(abs_path, lines)
-    total_denom = total_stmts + branch_analysis.arcs_total
-    deliberate_pct = (deliberate_covered + branch_analysis.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
-    incidental_pct = (incidental_covered + branch_analysis.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
-    total_pct = (
-        (covered_stmts + branch_analysis.arcs_covered) / total_denom * 100.0
-        if total_denom else 0.0
-    )
-    partial_cnt = len(branch_analysis.partial & executable)
-
-    stats_html = render_file_stats(total_stmts, covered_stmts, total_pct, deliberate_covered, deliberate_pct, incidental_covered, incidental_pct, partial_cnt, precision)
 
     rows = []
-    for lineno in all_linenos:
-        ld = lines.get(lineno)
-        source_text = source_map.get(lineno, "")
-        rows.append(render_line(lineno, source_text, ld, lineno in executable, partial=lineno in branch_analysis.partial))
+    for lr in file_report.lines:
+        ld: LineData | None = None
+        if lr.incidental_executions > 0 or lr.deliberate_executions > 0:
+            ld = LineData(
+                incidental_executions=lr.incidental_executions,
+                deliberate_executions=lr.deliberate_executions,
+                incidental_asserts=lr.incidental_asserts,
+                deliberate_asserts=lr.deliberate_asserts,
+                incidental_tests=lr.incidental_tests,
+                deliberate_tests=lr.deliberate_tests,
+            )
+        rows.append(render_line(lr.lineno, lr.source_text, ld, lr.executable, partial=lr.partial))
 
-    out_path.write_text(render_file_page(rel_path, stats_html, "".join(rows)), encoding="utf-8")
+    out_path.write_text(render_file_page(s.rel_path, stats_html, "".join(rows)), encoding="utf-8")
 
 
-def write_html(store: SessionStore, config: pytest.Config, output_dir: Path, precision: int = 1) -> None:
-    files = _group_by_rel_path(store, config)
+def write_html(report: CoverageReport, output_dir: Path, precision: int = 1) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build a mapping from rel_path -> abs_path for source reading
-    abs_path_map: dict[str, str] = {}
-    for (abs_path, _lineno) in store._data.keys():
-        try:
-            rel = Path(abs_path).relative_to(config.rootpath).as_posix()
-        except ValueError:
-            rel = Path(abs_path).as_posix()
-        abs_path_map[rel] = abs_path
-
     file_entries: list[_FileEntry] = []
-    for rel_path, lines in files.items():
-        file_html_name = rel_path.replace("/", "__") + ".html"
-        abs_path = abs_path_map.get(rel_path, rel_path)
-        executable = get_executable_lines(abs_path)
-        total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(lines)
-        total_covered = sum(
-            1 for ln in executable
-            if ln in lines and (lines[ln].deliberate_executions > 0 or lines[ln].incidental_executions > 0)
-        )
-        deliberate_covered = sum(
-            1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0
-        )
-        incidental_covered = sum(
-            1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0
-        )
-        branch_analysis = _analyze_branches(abs_path, lines)
-        _write_file_page(rel_path, lines, abs_path, executable, output_dir / file_html_name, precision)
+    for fr in report.files:
+        s = fr.summary
+        file_html_name = s.rel_path.replace("/", "__") + ".html"
+        _write_file_page(fr, output_dir / file_html_name, precision)
         file_entries.append(_FileEntry(
-            rel_path=rel_path,
+            rel_path=s.rel_path,
             file_html_name=file_html_name,
-            total_stmts=total_stmts,
-            total_covered=total_covered,
-            arcs_total=branch_analysis.arcs_total,
-            arcs_covered=branch_analysis.arcs_covered,
-            arcs_deliberate=branch_analysis.arcs_deliberate,
-            arcs_incidental=branch_analysis.arcs_incidental,
-            deliberate_covered=deliberate_covered,
-            incidental_covered=incidental_covered,
+            total_stmts=s.total_stmts,
+            total_covered=s.total_covered,
+            arcs_total=s.arcs_total,
+            arcs_covered=s.arcs_covered,
+            arcs_deliberate=s.arcs_deliberate,
+            arcs_incidental=s.arcs_incidental,
+            deliberate_covered=s.deliberate_covered,
+            incidental_covered=s.incidental_covered,
         ))
 
     tree = _build_file_tree(file_entries)
