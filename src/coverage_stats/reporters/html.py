@@ -146,6 +146,8 @@ class _FileEntry:
     total_covered: int
     arcs_total: int
     arcs_covered: int
+    arcs_deliberate: int
+    arcs_incidental: int
     deliberate_covered: int
     incidental_covered: int
 
@@ -174,6 +176,16 @@ class _FolderNode:
     def agg_arcs_covered(self) -> int:
         return sum(f.arcs_covered for f in self.files) + sum(
             s.agg_arcs_covered() for s in self.subfolders.values()
+        )
+
+    def agg_arcs_deliberate(self) -> int:
+        return sum(f.arcs_deliberate for f in self.files) + sum(
+            s.agg_arcs_deliberate() for s in self.subfolders.values()
+        )
+
+    def agg_arcs_incidental(self) -> int:
+        return sum(f.arcs_incidental for f in self.files) + sum(
+            s.agg_arcs_incidental() for s in self.subfolders.values()
         )
 
     def agg_deliberate(self) -> int:
@@ -218,10 +230,12 @@ def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str, precision: 
         arcs_covered = sub.agg_arcs_covered()
         delib = sub.agg_deliberate()
         incid = sub.agg_incidental()
+        arcs_deliberate = sub.agg_arcs_deliberate()
+        arcs_incidental = sub.agg_arcs_incidental()
         total_denom = total + arcs_total
         total_pct = (total_cov + arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-        delib_pct = delib / total * 100.0 if total else 0.0
-        incid_pct = incid / total * 100.0 if total else 0.0
+        delib_pct = (delib + arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
+        incid_pct = (incid + arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
         rows.append(
             f'<tr id="{fid}" class="folder-row"{parent_attr}'
             f' onclick="toggleFolder(\'{fid}\')">'
@@ -240,8 +254,8 @@ def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str, precision: 
         total = entry.total_stmts
         total_denom = total + entry.arcs_total
         total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-        delib_pct = entry.deliberate_covered / total * 100.0 if total else 0.0
-        incid_pct = entry.incidental_covered / total * 100.0 if total else 0.0
+        delib_pct = (entry.deliberate_covered + entry.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
+        incid_pct = (entry.incidental_covered + entry.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
         rows.append(
             f'<tr{parent_attr}>'
             f'<td style="padding-left:{file_indent}px">'
@@ -277,6 +291,8 @@ class _BranchAnalysis:
     partial: set[int]    # line numbers with partial branch coverage
     arcs_total: int      # total branch arc count
     arcs_covered: int    # branch arcs that were taken
+    arcs_deliberate: int # branch arcs taken during deliberate tests
+    arcs_incidental: int # branch arcs taken during incidental tests
 
 
 def _is_wildcard_case(case: ast.match_case) -> bool:
@@ -307,15 +323,25 @@ def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
         ld = lines.get(lineno)
         return (ld.incidental_executions + ld.deliberate_executions) if ld else 0
 
+    def _del_count(lineno: int) -> int:
+        ld = lines.get(lineno)
+        return ld.deliberate_executions if ld else 0
+
+    def _inc_count(lineno: int) -> int:
+        ld = lines.get(lineno)
+        return ld.incidental_executions if ld else 0
+
     try:
         source = open(path, encoding="utf-8", errors="replace").read()
         tree = ast.parse(source)
     except (OSError, SyntaxError):
-        return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0)
+        return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0, arcs_deliberate=0, arcs_incidental=0)
 
     partial: set[int] = set()
     arcs_total = 0
     arcs_covered = 0
+    arcs_deliberate = 0
+    arcs_incidental = 0
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.If, ast.While, ast.For)):
@@ -324,12 +350,26 @@ def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
         if_count = _count(node.lineno)
         if if_count == 0:
             continue
-        body_count = _count(node.body[0].lineno)
+        body_lineno = node.body[0].lineno
+        body_count = _count(body_lineno)
         true_taken = body_count > 0
         if node.orelse:
-            false_taken = _count(node.orelse[0].lineno) > 0
+            orelse_lineno = node.orelse[0].lineno
+            false_taken = _count(orelse_lineno) > 0
+            if true_taken:
+                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
+                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
+            if false_taken:
+                arcs_deliberate += 1 if _del_count(orelse_lineno) > 0 else 0
+                arcs_incidental += 1 if _inc_count(orelse_lineno) > 0 else 0
         else:
             false_taken = if_count > body_count
+            if true_taken:
+                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
+                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
+            if false_taken:
+                arcs_deliberate += 1 if _del_count(node.lineno) > _del_count(body_lineno) else 0
+                arcs_incidental += 1 if _inc_count(node.lineno) > _inc_count(body_lineno) else 0
         arcs_covered += (1 if true_taken else 0) + (1 if false_taken else 0)
         if not true_taken or not false_taken:
             partial.add(node.lineno)
@@ -347,20 +387,38 @@ def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
                 elif is_last:
                     arcs_total += 1
                     if _count(case_line) > 0:
-                        body_taken = _count(case.body[0].lineno) > 0
+                        body_lineno = case.body[0].lineno
+                        body_taken = _count(body_lineno) > 0
                         arcs_covered += 1 if body_taken else 0
+                        if body_taken:
+                            arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
+                            arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
                         if not body_taken:
                             partial.add(case_line)
                 else:
                     arcs_total += 2
                     if _count(case_line) > 0:
-                        body_taken = _count(case.body[0].lineno) > 0
-                        next_case_taken = _count(node.cases[i + 1].pattern.lineno) > 0
+                        body_lineno = case.body[0].lineno
+                        next_case_lineno = node.cases[i + 1].pattern.lineno
+                        body_taken = _count(body_lineno) > 0
+                        next_case_taken = _count(next_case_lineno) > 0
                         arcs_covered += (1 if body_taken else 0) + (1 if next_case_taken else 0)
+                        if body_taken:
+                            arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
+                            arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
+                        if next_case_taken:
+                            arcs_deliberate += 1 if _del_count(next_case_lineno) > 0 else 0
+                            arcs_incidental += 1 if _inc_count(next_case_lineno) > 0 else 0
                         if not body_taken or not next_case_taken:
                             partial.add(case_line)
 
-    return _BranchAnalysis(partial=partial, arcs_total=arcs_total, arcs_covered=arcs_covered)
+    return _BranchAnalysis(
+        partial=partial,
+        arcs_total=arcs_total,
+        arcs_covered=arcs_covered,
+        arcs_deliberate=arcs_deliberate,
+        arcs_incidental=arcs_incidental,
+    )
 
 
 def render_file_stats(total_stmts: int, covered: int, total_pct: float,
@@ -516,11 +574,11 @@ def _write_file_page(rel_path: str, lines: dict[int, LineData], abs_path: str,
         if ln in lines and (lines[ln].deliberate_executions > 0 or lines[ln].incidental_executions > 0)
     )
     deliberate_covered = sum(1 for ln in executable if ln in lines and lines[ln].deliberate_executions > 0)
-    deliberate_pct = deliberate_covered / total_stmts * 100.0 if total_stmts else 0.0
     incidental_covered = sum(1 for ln in executable if ln in lines and lines[ln].incidental_executions > 0)
-    incidental_pct = incidental_covered / total_stmts * 100.0 if total_stmts else 0.0
     branch_analysis = _analyze_branches(abs_path, lines)
     total_denom = total_stmts + branch_analysis.arcs_total
+    deliberate_pct = (deliberate_covered + branch_analysis.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
+    incidental_pct = (incidental_covered + branch_analysis.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
     total_pct = (
         (covered_stmts + branch_analysis.arcs_covered) / total_denom * 100.0
         if total_denom else 0.0
@@ -576,6 +634,8 @@ def write_html(store: SessionStore, config: pytest.Config, output_dir: Path, pre
             total_covered=total_covered,
             arcs_total=branch_analysis.arcs_total,
             arcs_covered=branch_analysis.arcs_covered,
+            arcs_deliberate=branch_analysis.arcs_deliberate,
+            arcs_incidental=branch_analysis.arcs_incidental,
             deliberate_covered=deliberate_covered,
             incidental_covered=incidental_covered,
         ))

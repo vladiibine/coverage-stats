@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from coverage_stats.profiler import LineTracer, ProfilerContext
+from coverage_stats.plugin import _flush_pre_test_lines
 from coverage_stats.store import SessionStore
 
 THIS_FILE = str(Path(__file__).resolve())
@@ -239,3 +240,42 @@ def test_trace_uses_local_tracer_returned_by_prev_global_tracer():
     assert global_events == ["call"]       # global only sees call
     assert "line" in local_events          # local sees line, not global
     assert "line" not in global_events
+
+
+# ---------------------------------------------------------------------------
+# _flush_pre_test_lines tests
+# ---------------------------------------------------------------------------
+
+
+def test_flush_pre_test_lines_sets_both_incidental_and_deliberate():
+    """Pre-test lines not yet in the store should be marked as both incidental
+    and deliberate: importing a module to run tests is itself a deliberate act."""
+    ctx = ProfilerContext(source_dirs=[])
+    ctx.pre_test_lines = {("src/foo.py", 1)}
+    store = SessionStore()
+    _flush_pre_test_lines(ctx, store)
+    ld = store._data[("src/foo.py", 1)]
+    assert ld.incidental_executions == 1
+    assert ld.deliberate_executions == 1
+
+
+def test_flush_pre_test_lines_does_not_overwrite_existing_store_entry():
+    """If a line already has call-phase data in the store, the flush must not
+    clobber it."""
+    ctx = ProfilerContext(source_dirs=[])
+    ctx.pre_test_lines = {("src/foo.py", 2)}
+    store = SessionStore()
+    ld = store.get_or_create(("src/foo.py", 2))
+    ld.deliberate_executions = 3
+    ld.incidental_executions = 5
+    _flush_pre_test_lines(ctx, store)
+    assert store._data[("src/foo.py", 2)].deliberate_executions == 3
+    assert store._data[("src/foo.py", 2)].incidental_executions == 5
+
+
+def test_flush_pre_test_lines_clears_pre_test_set():
+    ctx = ProfilerContext(source_dirs=[])
+    ctx.pre_test_lines = {("src/foo.py", 1), ("src/foo.py", 2)}
+    store = SessionStore()
+    _flush_pre_test_lines(ctx, store)
+    assert ctx.pre_test_lines == set()

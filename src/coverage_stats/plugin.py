@@ -15,17 +15,23 @@ class _XdistWorkerNode(Protocol):
 
 
 def _flush_pre_test_lines(ctx: ProfilerContext, store: SessionStore) -> None:
-    """Copy pre-test lines into the store as incidental (if not already present).
+    """Copy pre-test lines into the store as incidental + deliberate (if not already present).
 
     Lines executed before any test phase (module imports, module-level code,
     bodies of functions called at module level) are recorded in
     ``ctx.pre_test_lines`` by the tracer.  This drains that set into the store
     so reporters see them as covered.  Existing store entries (from call-phase
     tracing) are not overwritten.
+
+    Pre-test lines count as both incidental and deliberate: importing a module
+    to run tests is itself a deliberate act, so ``def`` statements and other
+    module-level code should not penalise deliberate coverage.
     """
     for key in ctx.pre_test_lines:
         if key not in store._data:
-            store.get_or_create(key).incidental_executions = 1
+            ld = store.get_or_create(key)
+            ld.incidental_executions = 1
+            ld.deliberate_executions = 1
     ctx.pre_test_lines.clear()
 
 

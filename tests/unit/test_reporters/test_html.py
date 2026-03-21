@@ -373,8 +373,8 @@ def test_render_line_escapes_html():
 
 def test_build_file_tree_groups_by_folder():
     entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 0, 0, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 0, 0, 2, 4),
+        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 0, 0, 0, 0, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 0, 0, 0, 0, 2, 4),
     ]
     tree = _build_file_tree(entries)
     assert "src" in tree.subfolders
@@ -387,8 +387,8 @@ def test_build_file_tree_groups_by_folder():
 
 def test_folder_node_aggregates_stats():
     entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 4, 3, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 2, 1, 2, 4),
+        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 4, 3, 2, 1, 5, 3),
+        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 2, 1, 1, 0, 2, 4),
     ]
     tree = _build_file_tree(entries)
     src = tree.subfolders["src"]
@@ -398,11 +398,13 @@ def test_folder_node_aggregates_stats():
     assert src.agg_incidental() == 7
     assert src.agg_arcs_total() == 6
     assert src.agg_arcs_covered() == 4
+    assert src.agg_arcs_deliberate() == 3
+    assert src.agg_arcs_incidental() == 1
 
 
 def test_render_tree_rows_contains_link_and_folder():
     entries = [
-        _FileEntry("src/foo.py", "src__foo.py.html", 3, 2, 0, 0, 1, 2),
+        _FileEntry("src/foo.py", "src__foo.py.html", 3, 2, 0, 0, 0, 0, 1, 2),
     ]
     tree = _build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
@@ -413,7 +415,7 @@ def test_render_tree_rows_contains_link_and_folder():
 
 def test_render_tree_rows_pct_calculation():
     entries = [
-        _FileEntry("src/x.py", "src__x.py.html", 3, 2, 0, 0, 1, 0),
+        _FileEntry("src/x.py", "src__x.py.html", 3, 2, 0, 0, 0, 0, 1, 0),
     ]
     tree = _build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
@@ -451,8 +453,8 @@ def test_render_file_stats_shows_total_pct():
 
 def test_folder_node_agg_total_covered():
     entries = [
-        _FileEntry("a/x.py", "a__x.py.html", 10, 8, 0, 0, 6, 3),
-        _FileEntry("a/y.py", "a__y.py.html", 5, 3, 0, 0, 1, 2),
+        _FileEntry("a/x.py", "a__x.py.html", 10, 8, 0, 0, 0, 0, 6, 3),
+        _FileEntry("a/y.py", "a__y.py.html", 5, 3, 0, 0, 0, 0, 1, 2),
     ]
     tree = _build_file_tree(entries)
     node = tree.subfolders["a"]
@@ -461,7 +463,7 @@ def test_folder_node_agg_total_covered():
 
 def test_render_tree_rows_total_pct_column():
     entries = [
-        _FileEntry("src/z.py", "src__z.py.html", 4, 3, 0, 0, 2, 1),
+        _FileEntry("src/z.py", "src__z.py.html", 4, 3, 0, 0, 0, 0, 2, 1),
     ]
     tree = _build_file_tree(entries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))

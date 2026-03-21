@@ -341,3 +341,107 @@ def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
     result = _analyze_branches(path, lines)
     # case 1 (non-last): 2 arcs; case 2 (non-wildcard last): 1 arc → total=3
     assert result.arcs_total == 3
+
+
+# ---------------------------------------------------------------------------
+# _analyze_branches — arcs_deliberate / arcs_incidental
+# ---------------------------------------------------------------------------
+
+
+def _ld_di(ie=0, de=0) -> LineData:
+    ld = LineData()
+    ld.incidental_executions = ie
+    ld.deliberate_executions = de
+    return ld
+
+
+def test_analyze_branches_if_true_arc_deliberate(tmp_path):
+    """Body run deliberately → true arc counted in arcs_deliberate."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=3)}
+    result = _analyze_branches(path, lines)
+    assert result.arcs_deliberate == 1   # true arc taken deliberately
+    assert result.arcs_incidental == 0
+
+
+def test_analyze_branches_if_true_arc_incidental(tmp_path):
+    """Body run incidentally → true arc counted in arcs_incidental."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    lines = {if_line: _ld_di(ie=3), body_line: _ld_di(ie=3)}
+    result = _analyze_branches(path, lines)
+    assert result.arcs_deliberate == 0
+    assert result.arcs_incidental == 1   # true arc taken incidentally
+
+
+def test_analyze_branches_if_false_arc_no_orelse_deliberate(tmp_path):
+    """Condition evaluated more times than body during deliberate tests → false arc deliberate."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    # deliberate: ran condition 3 times, body 2 times → false arc taken deliberately
+    lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=2)}
+    result = _analyze_branches(path, lines)
+    assert result.arcs_deliberate == 2   # both true and false arcs taken deliberately
+    assert result.arcs_incidental == 0
+
+
+def test_analyze_branches_if_both_arcs_deliberate_and_incidental(tmp_path):
+    """Same arc taken in both deliberate and incidental tests — counted in both."""
+    path = _write(tmp_path, """\
+        def f(x):
+            if x > 0:
+                return 1
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    body_line = if_line + 1
+    lines = {if_line: _ld_di(ie=2, de=2), body_line: _ld_di(ie=2, de=2)}
+    result = _analyze_branches(path, lines)
+    assert result.arcs_deliberate == 1   # true arc (body covered deliberately)
+    assert result.arcs_incidental == 1   # true arc (body covered incidentally)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
+def test_analyze_branches_match_arc_deliberate(tmp_path):
+    """Match body taken deliberately → arc counted in arcs_deliberate."""
+    path = _write(tmp_path, """\
+        def f(v):
+            match v:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
+    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    lines = {
+        case1_line: _ld_di(de=5),
+        case1_line + 1: _ld_di(de=3),   # case 1 body: deliberate
+        case2_line: _ld_di(ie=2),
+        case2_line + 1: _ld_di(ie=2),   # case 2 body: incidental
+    }
+    result = _analyze_branches(path, lines)
+    # case1 body arc → deliberate; case2 body arc → incidental
+    # case1 next-case arc: case2_line reached incidentally → incidental
+    assert result.arcs_deliberate == 1
+    assert result.arcs_incidental == 2
