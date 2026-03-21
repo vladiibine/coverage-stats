@@ -9,11 +9,13 @@ CORE
   * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
 
 REPORTING:
+  * ordering or html columns
+  * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
   * in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * in the html index, add all stats (statements, #deliberate, %deliberate, #/%incidental, )
-  * total coverage
   * json/csv reporting: do they also display partial lines? They should!
+  * [v] total coverage
   * [v] match statements - check if they can be seen as partial, and implement it like coverage.py if they can
   * [v] check with statement; claude wasn't able to figure it out. I imagine the case where the `__enter__` fires an exception could be treated as partial, but let's check how coverage does it 
   * [v] check skipped for/while branches
@@ -30,6 +32,12 @@ REPORTING:
 Non-functional requirements:
   * clone some open source projects, run its tests, check the coverage for it 
   * publish on pypi
+  * make it extensible (allow plugging into the stats collection)
+  * plugging into the HTML generation
+    * so the CoverageStatsPlugin, on session finish calls the reporter directly
+  * allow creating other reporters
+    * so the CoverageStatsPlugin, on session finish calls the reporter directly
+  * add tox, to test on all supported python versions
   * [v] check that performance is not seriously degraded
   * [v] the example project, move it 
   * [v] the small project - turn it into a larger one, with lots of lines, files and tests (can be copy-pasted)

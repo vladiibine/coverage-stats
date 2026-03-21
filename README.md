@@ -76,13 +76,42 @@ pytest --coverage-stats --coverage-stats-format=json,csv --coverage-stats-output
 
 ## Development
 
+### Running the test suite
+
+Install [nox](https://nox.thea.codes) (once):
+
+```bash
+uv tool install nox
+```
+
+And then here are examples of how you could run the tests, linting and type checking
+```bash
+# tests (all Python versions), mypy, ruff
+nox
+
+# only the tests (all Python versions)
+nox -s tests
+
+# Only the tests, python 3.12
+nox -s "tests-3.12"
+```
+
+
+Individual sessions:
+
+| Session | What it runs |
+|---------|-------------|
+| `tests` | pytest across Python 3.9–3.14 |
+| `mypy`  | mypy strict type-checking |
+| `lint`  | ruff |
+
 ### Type checking
 
-Install dev dependencies and run mypy:
+Run mypy directly (without nox):
 
 ```bash
 pip install -e ".[dev]"
-mypy
+mypy src/
 ```
 
 mypy is configured in `pyproject.toml` under `[tool.mypy]` with strict mode enabled.

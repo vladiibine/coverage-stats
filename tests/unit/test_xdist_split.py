@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from coverage_stats.plugin import (
     CoverageStatsPlugin,
@@ -176,8 +173,6 @@ def test_worker_sessionfinish_populates_workeroutput():
     raw = config.workeroutput.get("coverage_stats_data")
     assert raw is not None
     parsed = json.loads(raw)
-    # The key format is "path\x00lineno"
-    key = "src/app.py\x00020" if "src/app.py\x00020" in parsed else "src/app.py\x0020"
     # Just verify at least one entry present and value is correct
     assert len(parsed) == 1
     values = list(parsed.values())[0]

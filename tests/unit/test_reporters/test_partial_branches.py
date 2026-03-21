@@ -66,9 +66,9 @@ def test_match_case1_always_matched_is_partial(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
     case1_body = case1_line + 1
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
 
     lines = {
         case1_line: _ld(5),   # case 1 reached
@@ -94,9 +94,9 @@ def test_match_all_cases_taken_not_partial(tmp_path):
                     return "other"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
-    case_wild_line = next(i + 1 for i, l in enumerate(src) if "case _" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
+    case_wild_line = next(i + 1 for i, ln in enumerate(src) if "case _" in ln)
 
     lines = {
         case1_line: _ld(3),
@@ -124,10 +124,10 @@ def test_match_case_never_reached_not_partial(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
 
     # only case 1 reached and matched; case 2 line has no entry
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
     lines = {
         case1_line: _ld(5),
         case1_line + 1: _ld(5),
@@ -148,8 +148,8 @@ def test_match_case_never_matched_is_partial(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
 
     lines = {
         case1_line: _ld(5),
@@ -173,8 +173,8 @@ def test_match_last_case_not_taken_is_partial(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
 
     lines = {
         case1_line: _ld(5),
@@ -198,7 +198,7 @@ def test_match_last_case_taken_not_partial(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
 
     lines = {
         case2_line: _ld(3),
@@ -223,9 +223,9 @@ def test_analyze_branches_if_both_taken(tmp_path):
                 return 0
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
-    else_body = next(i + 1 for i, l in enumerate(src) if "return 0" in l)
+    else_body = next(i + 1 for i, ln in enumerate(src) if "return 0" in ln)
     lines = {
         if_line: _ld(10),
         body_line: _ld(5),
@@ -245,7 +245,7 @@ def test_analyze_branches_if_false_not_taken(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {
         if_line: _ld(5),
@@ -265,7 +265,7 @@ def test_analyze_branches_for_body_not_taken(tmp_path):
                 pass
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    for_line = next(i + 1 for i, l in enumerate(src) if "for i" in l)
+    for_line = next(i + 1 for i, ln in enumerate(src) if "for i" in ln)
     lines = {
         for_line: _ld(3),
         # body (pass) never ran
@@ -284,7 +284,7 @@ def test_analyze_branches_unreached_branch_contributes_missed_arcs(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     lines: dict[int, LineData] = {}   # if line never executed
     result = _analyze_branches(path, lines)
     assert if_line not in result.partial
@@ -304,8 +304,8 @@ def test_analyze_branches_match_wildcard_last_case(tmp_path):
                     return "other"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case_wild_line = next(i + 1 for i, l in enumerate(src) if "case _" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case_wild_line = next(i + 1 for i, ln in enumerate(src) if "case _" in ln)
     lines = {
         case1_line: _ld(5),
         case1_line + 1: _ld(3),   # body taken sometimes
@@ -330,8 +330,8 @@ def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
     lines = {
         case1_line: _ld(5),
         case1_line + 1: _ld(3),
@@ -363,7 +363,7 @@ def test_analyze_branches_if_true_arc_deliberate(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=3)}
     result = _analyze_branches(path, lines)
@@ -379,7 +379,7 @@ def test_analyze_branches_if_true_arc_incidental(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(ie=3), body_line: _ld_di(ie=3)}
     result = _analyze_branches(path, lines)
@@ -395,7 +395,7 @@ def test_analyze_branches_if_false_arc_no_orelse_deliberate(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     # deliberate: ran condition 3 times, body 2 times → false arc taken deliberately
     lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=2)}
@@ -412,7 +412,7 @@ def test_analyze_branches_if_both_arcs_deliberate_and_incidental(tmp_path):
                 return 1
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    if_line = next(i + 1 for i, l in enumerate(src) if "if x" in l)
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(ie=2, de=2), body_line: _ld_di(ie=2, de=2)}
     result = _analyze_branches(path, lines)
@@ -432,8 +432,8 @@ def test_analyze_branches_match_arc_deliberate(tmp_path):
                     return "two"
     """)
     src = (tmp_path / "subject.py").read_text().splitlines()
-    case1_line = next(i + 1 for i, l in enumerate(src) if "case 1" in l)
-    case2_line = next(i + 1 for i, l in enumerate(src) if "case 2" in l)
+    case1_line = next(i + 1 for i, ln in enumerate(src) if "case 1" in ln)
+    case2_line = next(i + 1 for i, ln in enumerate(src) if "case 2" in ln)
     lines = {
         case1_line: _ld_di(de=5),
         case1_line + 1: _ld_di(de=3),   # case 1 body: deliberate

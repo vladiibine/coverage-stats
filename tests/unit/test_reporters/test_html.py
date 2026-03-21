@@ -11,7 +11,6 @@ from coverage_stats.reporters.html import (
     render_file_page,
     render_file_stats,
     _FileEntry,
-    _FolderNode,
     _build_file_tree,
     _render_tree_rows,
 )

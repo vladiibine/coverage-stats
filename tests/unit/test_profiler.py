@@ -5,8 +5,6 @@ import types
 import warnings
 from pathlib import Path
 
-import pytest
-
 from coverage_stats.profiler import LineTracer, ProfilerContext
 from coverage_stats.plugin import _flush_pre_test_lines
 from coverage_stats.store import SessionStore

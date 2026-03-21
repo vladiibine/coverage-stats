@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 
 def test_default_source_tracks_only_src_directory(pytester):
     """When coverage_stats_source is not configured, only the 'src' directory is profiled."""

@@ -4,7 +4,7 @@ import importlib
 import inspect
 import types
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, Union
 
 import pytest
 
@@ -20,7 +20,8 @@ class CoverageStatsResolutionError(CoverageStatsError):
 _F = TypeVar("_F")
 
 # Types accepted by inspect.getsourcefile / inspect.getsourcelines
-_InspectTarget = type[object] | types.FunctionType | types.MethodType
+# Union[] is needed for python 3.9
+_InspectTarget = Union[type[object], types.FunctionType, types.MethodType]
 
 
 def covers(*refs: object) -> Callable[[_F], _F]:
