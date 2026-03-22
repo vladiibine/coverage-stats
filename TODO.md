@@ -14,7 +14,7 @@ REPORTING:
   * See the exact tests that covered (incidentally & deliberately) every line
   * in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * in the html index, add all stats (statements, #deliberate, %deliberate, #/%incidental, )
-  * json/csv reporting: do they also display partial lines? They should!
+  * [v] json/csv reporting: do they also display partial lines? They should!
   * [v] total coverage
   * [v] match statements - check if they can be seen as partial, and implement it like coverage.py if they can
   * [v] check with statement; claude wasn't able to figure it out. I imagine the case where the `__enter__` fires an exception could be treated as partial, but let's check how coverage does it 
@@ -32,7 +32,7 @@ REPORTING:
 Non-functional requirements:
   * clone some open source projects, run its tests, check the coverage for it 
   * publish on pypi
-  * make it extensible (allow plugging into the stats collection)
+  * [v] make it extensible (allow plugging into the stats collection)
   * [v] plugging into the HTML generation
     * so the CoverageStatsPlugin, on session finish calls the reporter directly
   * [v]allow creating other reporters

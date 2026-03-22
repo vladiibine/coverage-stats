@@ -28,6 +28,7 @@ def write_json(report: CoverageReport, output_dir: Path) -> None:
                 "deliberate_asserts": lr.deliberate_asserts,
                 "incidental_tests": lr.incidental_tests,
                 "deliberate_tests": lr.deliberate_tests,
+                "partial": lr.partial,
             }
             for lr in fr.lines
             if lr.incidental_executions > 0 or lr.deliberate_executions > 0

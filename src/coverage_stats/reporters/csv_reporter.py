@@ -18,12 +18,14 @@ def write_csv(report: CoverageReport, output_dir: Path) -> None:
             if lr.incidental_executions > 0 or lr.deliberate_executions > 0:
                 rows.append((fr.summary.rel_path, lr.lineno, lr.incidental_executions,
                              lr.deliberate_executions, lr.incidental_asserts,
-                             lr.deliberate_asserts, lr.incidental_tests, lr.deliberate_tests))
+                             lr.deliberate_asserts, lr.incidental_tests, lr.deliberate_tests,
+                             lr.partial))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / "coverage-stats.csv").open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["file", "lineno", "incidental_executions", "deliberate_executions",
-                         "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests"])
+                         "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests",
+                         "partial"])
         for row in rows:
             writer.writerow(list(row))

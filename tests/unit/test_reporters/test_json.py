@@ -131,6 +131,41 @@ def test_lineno_keys_are_strings(tmp_path):
     assert 42 not in file_lines
 
 
+def test_partial_line_flag_present(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    src_file = rootdir / "mod.py"
+    src_file.write_text("if x:\n    pass\n")
+    store.get_or_create((str(src_file), 1)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    report = build_report(store, config)
+    write_json(report, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    line = result["files"]["mod.py"]["lines"]["1"]
+    assert "partial" in line
+
+
+def test_non_partial_line_flag_is_false(tmp_path):
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    abs_file = str(rootdir / "mod.py")
+    store.get_or_create((abs_file, 1)).incidental_executions = 1
+
+    config = make_config(rootdir)
+    out_dir = tmp_path / "out"
+    report = build_report(store, config)
+    write_json(report, out_dir)
+
+    result = json.loads((out_dir / "coverage-stats.json").read_text())
+    line = result["files"]["mod.py"]["lines"]["1"]
+    assert line["partial"] is False
+
+
 def test_output_dir_created_if_missing(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
