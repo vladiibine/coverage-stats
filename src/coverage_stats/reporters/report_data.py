@@ -52,6 +52,8 @@ class FileSummary:
     deliberate_pct: float
     incidental_pct: float
     partial_count: int
+    incidental_asserts: int = 0
+    deliberate_asserts: int = 0
 
 
 @dataclass
@@ -98,6 +100,16 @@ class FolderNode:
     def agg_incidental(self) -> int:
         return sum(f.incidental_covered for f in self.files) + sum(
             s.agg_incidental() for s in self.subfolders.values()
+        )
+
+    def agg_incidental_asserts(self) -> int:
+        return sum(f.incidental_asserts for f in self.files) + sum(
+            s.agg_incidental_asserts() for s in self.subfolders.values()
+        )
+
+    def agg_deliberate_asserts(self) -> int:
+        return sum(f.deliberate_asserts for f in self.files) + sum(
+            s.agg_deliberate_asserts() for s in self.subfolders.values()
         )
 
 
@@ -181,6 +193,8 @@ class DefaultReportBuilder:
             incidental_covered = sum(
                 1 for ln in executable if ln in line_data and line_data[ln].incidental_executions > 0
             )
+            incidental_asserts = sum(ld.incidental_asserts for ld in line_data.values())
+            deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
 
             total_denom = total_stmts + branch_analysis.arcs_total
             total_pct = (total_covered + branch_analysis.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
@@ -204,6 +218,8 @@ class DefaultReportBuilder:
                 deliberate_pct=deliberate_pct,
                 incidental_pct=incidental_pct,
                 partial_count=partial_count,
+                incidental_asserts=incidental_asserts,
+                deliberate_asserts=deliberate_asserts,
             )
 
             line_reports: list[LineReport] = []

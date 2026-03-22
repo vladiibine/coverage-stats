@@ -168,15 +168,28 @@ function hideDescendants(id) {
 
 // Column visibility — persisted in localStorage
 (function() {
-    var KEY = 'cov-stats-hidden-cols';
+    var KEY = 'cov-stats-col-prefs';
 
-    function hiddenSet() {
-        try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
-        catch(e) { return new Set(); }
+    // Storage format: {col_id: bool} — only columns the user has explicitly toggled.
+    // Columns absent from the object fall through to the Python-baked default.
+    // Migration: old format was an array of hidden col ids.
+    function loadExplicit() {
+        try {
+            var raw = localStorage.getItem(KEY);
+            if (!raw) return {};
+            var val = JSON.parse(raw);
+            if (Array.isArray(val)) {
+                // Migrate old hidden-set format
+                var obj = {};
+                val.forEach(function(col) { obj[col] = false; });
+                return obj;
+            }
+            return val || {};
+        } catch(e) { return {}; }
     }
 
-    function saveHidden(set) {
-        try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); } catch(e) {}
+    function saveExplicit(explicit) {
+        try { localStorage.setItem(KEY, JSON.stringify(explicit)); } catch(e) {}
     }
 
     function applyCol(col, visible, animate) {
@@ -209,30 +222,27 @@ function hideDescendants(id) {
     }
 
     window.toggleCol = function(col, visible) {
-        var hidden = hiddenSet();
-        if (visible) { hidden.delete(col); } else { hidden.add(col); }
-        saveHidden(hidden);
+        var explicit = loadExplicit();
+        explicit[col] = visible;
+        saveExplicit(explicit);
         applyCol(col, visible, true);
     };
 
     document.addEventListener('DOMContentLoaded', function() {
-        var savedRaw = null;
-        try { savedRaw = localStorage.getItem(KEY); } catch(e) {}
-        if (savedRaw !== null) {
-            // User has saved preferences — they are authoritative, override Python defaults
-            var hidden = new Set(JSON.parse(savedRaw || '[]'));
-            document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
-                var shouldHide = hidden.has(cb.value);
-                applyCol(cb.value, !shouldHide, false);
-                cb.checked = !shouldHide;
-            });
-        } else {
-            // First visit — Python-injected col-hidden classes are the initial state; sync checkboxes
-            document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
-                var firstCell = document.querySelector('[data-col="' + cb.value + '"]');
-                cb.checked = firstCell ? !firstCell.classList.contains('col-hidden') : true;
-            });
-        }
+        var explicit = loadExplicit();
+        document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
+            var col = cb.value;
+            if (col in explicit) {
+                // User has explicitly toggled this column — honour their choice
+                applyCol(col, explicit[col], false);
+                cb.checked = explicit[col];
+            } else {
+                // No saved preference — use Python-baked default (col-hidden class)
+                var firstCell = document.querySelector('[data-col="' + col + '"]');
+                var visible = firstCell ? !firstCell.classList.contains('col-hidden') : true;
+                cb.checked = visible;
+            }
+        });
     });
 })();
 """
@@ -256,6 +266,12 @@ class HtmlReporter:
         "total-pct": True,
         "delib-pct": True,
         "incid-pct": True,
+        "delib-covered": False,
+        "incid-covered": False,
+        "inc-asserts": False,
+        "del-asserts": False,
+        "inc-assert-density": False,
+        "del-assert-density": False,
     }
     FILE_COLUMNS: dict[str, bool] = {
         "inc-exec": True,
@@ -272,6 +288,12 @@ class HtmlReporter:
         "total-pct": "Total %",
         "delib-pct": "Deliberate %",
         "incid-pct": "Incidental %",
+        "delib-covered": "Del. Covered",
+        "incid-covered": "Inc. Covered",
+        "inc-asserts": "Inc. Asserts",
+        "del-asserts": "Del. Asserts",
+        "inc-assert-density": "Inc. Assert Density",
+        "del-assert-density": "Del. Assert Density",
     }
     FILE_COL_LABELS: dict[str, str] = {
         "inc-exec": "Inc. Executions",
@@ -379,10 +401,14 @@ class HtmlReporter:
             incid = sub.agg_incidental()
             arcs_deliberate = sub.agg_arcs_deliberate()
             arcs_incidental = sub.agg_arcs_incidental()
+            inc_asserts = sub.agg_incidental_asserts()
+            del_asserts = sub.agg_deliberate_asserts()
             total_denom = total + arcs_total
             total_pct = (total_cov + arcs_covered) / total_denom * 100.0 if total_denom else 0.0
             delib_pct = (delib + arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
             incid_pct = (incid + arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+            inc_density = inc_asserts / total_denom if total_denom else 0.0
+            del_density = del_asserts / total_denom if total_denom else 0.0
             rows.append(
                 f'<tr id="{fid}" class="folder-row"{parent_attr}'
                 f' onclick="toggleFolder(\'{fid}\')">'
@@ -392,6 +418,12 @@ class HtmlReporter:
                 f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
                 f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
                 f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{c("delib-covered", idx)}>{delib}</td>'
+                f'<td data-col="incid-covered"{c("incid-covered", idx)}>{incid}</td>'
+                f'<td data-col="inc-asserts"{c("inc-asserts", idx)}>{inc_asserts}</td>'
+                f'<td data-col="del-asserts"{c("del-asserts", idx)}>{del_asserts}</td>'
+                f'<td data-col="inc-assert-density"{c("inc-assert-density", idx)}>{inc_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{c("del-assert-density", idx)}>{del_density:{fmt}}</td>'
                 f'</tr>'
             )
             rows.extend(self._render_tree_rows(sub, depth + 1, fid))
@@ -404,6 +436,8 @@ class HtmlReporter:
             total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
             delib_pct = (entry.deliberate_covered + entry.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
             incid_pct = (entry.incidental_covered + entry.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+            inc_density = entry.incidental_asserts / total_denom if total_denom else 0.0
+            del_density = entry.deliberate_asserts / total_denom if total_denom else 0.0
             rows.append(
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
@@ -412,6 +446,12 @@ class HtmlReporter:
                 f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
                 f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
                 f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{c("delib-covered", idx)}>{entry.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{c("incid-covered", idx)}>{entry.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{c("inc-asserts", idx)}>{entry.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{c("del-asserts", idx)}>{entry.deliberate_asserts}</td>'
+                f'<td data-col="inc-assert-density"{c("inc-assert-density", idx)}>{inc_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{c("del-assert-density", idx)}>{del_density:{fmt}}</td>'
                 f'</tr>'
             )
 
@@ -517,6 +557,12 @@ class HtmlReporter:
             f'<th data-col="total-pct"{c("total-pct", idx)}>Total %</th>'
             f'<th data-col="delib-pct"{c("delib-pct", idx)}>Deliberate %</th>'
             f'<th data-col="incid-pct"{c("incid-pct", idx)}>Incidental %</th>'
+            f'<th data-col="delib-covered"{c("delib-covered", idx)}>Del. Covered</th>'
+            f'<th data-col="incid-covered"{c("incid-covered", idx)}>Inc. Covered</th>'
+            f'<th data-col="inc-asserts"{c("inc-asserts", idx)}>Inc. Asserts</th>'
+            f'<th data-col="del-asserts"{c("del-asserts", idx)}>Del. Asserts</th>'
+            f'<th data-col="inc-assert-density"{c("inc-assert-density", idx)}>Inc. Assert Density</th>'
+            f'<th data-col="del-assert-density"{c("del-assert-density", idx)}>Del. Assert Density</th>'
             f'</tr></thead>'
             f'<tbody>{rows_html}</tbody>'
             f'</table>'

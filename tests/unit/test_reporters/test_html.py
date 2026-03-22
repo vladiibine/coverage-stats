@@ -752,12 +752,18 @@ def test_subclass_render_tree_rows_override_is_called(tmp_path):
 # Column controls — checkboxes and data-col attributes
 # ---------------------------------------------------------------------------
 
-# Columns that can be toggled on the index page and their checkbox labels
+# Mirrors HtmlReporter.INDEX_COLUMNS — kept in sync manually so tests don't import private state
 _INDEX_TOGGLEABLE_COLS = {
     "stmts": "Stmts",
     "total-pct": "Total %",
     "delib-pct": "Deliberate %",
     "incid-pct": "Incidental %",
+    "delib-covered": "Del. Covered",
+    "incid-covered": "Inc. Covered",
+    "inc-asserts": "Inc. Asserts",
+    "del-asserts": "Del. Asserts",
+    "inc-assert-density": "Inc. Assert Density",
+    "del-assert-density": "Del. Assert Density",
 }
 
 # Columns that can be toggled on the file page and their checkbox labels
@@ -785,20 +791,24 @@ def test_index_col_controls_has_checkbox_for_every_toggleable_column():
 
 
 @covers(HtmlReporter.render_index_page)
-def test_index_all_checkboxes_checked_by_default():
-    """All column checkboxes must start checked so all columns are visible on first load."""
+def test_index_checkboxes_reflect_python_defaults():
+    """Checkboxes must match INDEX_COLUMNS: True → checked, False → unchecked."""
     import re
     html = render_index_page("")
-    checkboxes = re.findall(r'<input[^>]+type="checkbox"[^>]*>', html)
-    for cb in checkboxes:
-        assert re.search(r'\schecked\s*>', cb), f"checkbox not checked by default: {cb}"
+    for col_id, visible in HtmlReporter.INDEX_COLUMNS.items():
+        cb = re.search(rf'<input[^>]+value="{col_id}"[^>]*>', html)
+        assert cb, f"checkbox for '{col_id}' not found"
+        has_checked = bool(re.search(r'\schecked\s*>', cb.group(0)))
+        assert has_checked == visible, (
+            f"checkbox for '{col_id}' checked={has_checked}, expected {visible}"
+        )
 
 
 @covers(HtmlReporter.render_index_page)
 def test_index_each_toggleable_column_has_data_col_on_header():
     html = render_index_page("")
     for col_id in _INDEX_TOGGLEABLE_COLS:
-        assert f'<th data-col="{col_id}">' in html, f"th data-col='{col_id}' missing from index header"
+        assert f'<th data-col="{col_id}"' in html, f"th data-col='{col_id}' missing from index header"
 
 
 @covers(_render_tree_rows)
@@ -812,12 +822,19 @@ def test_index_each_toggleable_column_has_data_col_on_data_cells():
 
 
 @covers(HtmlReporter.render_index_page)
-def test_index_no_col_hidden_class_by_default():
-    """No column should be hidden in the static HTML — hiding is applied by JS from localStorage.
-    We check only the <body> since the CSS itself contains the .col-hidden rule as text."""
+def test_index_col_hidden_matches_python_defaults():
+    """True columns must have no col-hidden; False columns must carry col-hidden."""
     html = render_index_page("")
     body = html[html.index("<body>"):]
-    assert "col-hidden" not in body
+    for col_id, visible in HtmlReporter.INDEX_COLUMNS.items():
+        if visible:
+            assert f'data-col="{col_id}" class="col-hidden"' not in body, (
+                f"column '{col_id}' is True but has col-hidden"
+            )
+        else:
+            assert f'data-col="{col_id}" class="col-hidden"' in body, (
+                f"column '{col_id}' is False but missing col-hidden"
+            )
 
 
 @covers(HtmlReporter.render_file_page)

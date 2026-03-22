@@ -1,7 +1,5 @@
 TEST
-  * test that it works with coverage
-  * test that it works with xdist
-  * test that it works with both
+  * [v] The coverage-stats-example project is set up to run with coverage.py and xdist! Just run `nox` (it runs as a pre-commit hook)
 
 CORE
   * [v] instead of "lines", we need "statements", like coverage does it
@@ -12,11 +10,12 @@ CORE
   * [v] add tests invoking the library together with coverage.py / xdist / both
 
 REPORTING:
+  * coloring of stats (from red-ish to green-ish) 
   * ordering or html columns
   * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
-  * in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
-  * in the html index, add all stats (statements, #deliberate, %deliberate, #/%incidental, )
+  * [v] in the html index, add all stats (# statements, #/% deliberate, #/% incidental, # asserts, #asserts/#lines)
+  * [v] in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * [v] json/csv reporting: do they also display partial lines? They should!
   * [v] total coverage
   * [v] match statements - check if they can be seen as partial, and implement it like coverage.py if they can
