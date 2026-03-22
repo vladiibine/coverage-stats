@@ -216,37 +216,26 @@ function hideDescendants(id) {
     };
 
     document.addEventListener('DOMContentLoaded', function() {
-        var hidden = hiddenSet();
-        hidden.forEach(function(col) { applyCol(col, false, false); });
-        document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
-            if (hidden.has(cb.value)) cb.checked = false;
-        });
+        var savedRaw = null;
+        try { savedRaw = localStorage.getItem(KEY); } catch(e) {}
+        if (savedRaw !== null) {
+            // User has saved preferences — they are authoritative, override Python defaults
+            var hidden = new Set(JSON.parse(savedRaw || '[]'));
+            document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
+                var shouldHide = hidden.has(cb.value);
+                applyCol(cb.value, !shouldHide, false);
+                cb.checked = !shouldHide;
+            });
+        } else {
+            // First visit — Python-injected col-hidden classes are the initial state; sync checkboxes
+            document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
+                var firstCell = document.querySelector('[data-col="' + cb.value + '"]');
+                cb.checked = firstCell ? !firstCell.classList.contains('col-hidden') : true;
+            });
+        }
     });
 })();
 """
-
-
-_INDEX_COL_CONTROLS = (
-    '<div class="col-controls">'
-    '<span class="col-controls-label">Columns:</span>'
-    '<label><input type="checkbox" value="stmts" onchange="toggleCol(\'stmts\', this.checked)" checked> Stmts</label>'
-    '<label><input type="checkbox" value="total-pct" onchange="toggleCol(\'total-pct\', this.checked)" checked> Total %</label>'
-    '<label><input type="checkbox" value="delib-pct" onchange="toggleCol(\'delib-pct\', this.checked)" checked> Deliberate %</label>'
-    '<label><input type="checkbox" value="incid-pct" onchange="toggleCol(\'incid-pct\', this.checked)" checked> Incidental %</label>'
-    '</div>'
-)
-
-_FILE_COL_CONTROLS = (
-    '<div class="col-controls">'
-    '<span class="col-controls-label">Columns:</span>'
-    '<label><input type="checkbox" value="inc-exec" onchange="toggleCol(\'inc-exec\', this.checked)" checked> Inc. Executions</label>'
-    '<label><input type="checkbox" value="del-exec" onchange="toggleCol(\'del-exec\', this.checked)" checked> Del. Executions</label>'
-    '<label><input type="checkbox" value="inc-asserts" onchange="toggleCol(\'inc-asserts\', this.checked)" checked> Inc. Asserts</label>'
-    '<label><input type="checkbox" value="del-asserts" onchange="toggleCol(\'del-asserts\', this.checked)" checked> Del. Asserts</label>'
-    '<label><input type="checkbox" value="inc-tests" onchange="toggleCol(\'inc-tests\', this.checked)" checked> Inc. Tests</label>'
-    '<label><input type="checkbox" value="del-tests" onchange="toggleCol(\'del-tests\', this.checked)" checked> Del. Tests</label>'
-    '</div>'
-)
 
 
 class HtmlReporter:
@@ -259,11 +248,61 @@ class HtmlReporter:
     CSS = _CSS
     EXTRA_JS = ""
     EXTRA_CSS = ""
-    INDEX_COL_CONTROLS = _INDEX_COL_CONTROLS
-    FILE_COL_CONTROLS = _FILE_COL_CONTROLS
+
+    # Map col-id → visible (True = shown by default, False = hidden by default).
+    # Override in a subclass to change initial column visibility.
+    INDEX_COLUMNS: dict[str, bool] = {
+        "stmts": True,
+        "total-pct": True,
+        "delib-pct": True,
+        "incid-pct": True,
+    }
+    FILE_COLUMNS: dict[str, bool] = {
+        "inc-exec": True,
+        "del-exec": True,
+        "inc-asserts": True,
+        "del-asserts": True,
+        "inc-tests": True,
+        "del-tests": True,
+    }
+
+    # Human-readable labels for each column's checkbox. Override to rename.
+    INDEX_COL_LABELS: dict[str, str] = {
+        "stmts": "Stmts",
+        "total-pct": "Total %",
+        "delib-pct": "Deliberate %",
+        "incid-pct": "Incidental %",
+    }
+    FILE_COL_LABELS: dict[str, str] = {
+        "inc-exec": "Inc. Executions",
+        "del-exec": "Del. Executions",
+        "inc-asserts": "Inc. Asserts",
+        "del-asserts": "Del. Asserts",
+        "inc-tests": "Inc. Tests",
+        "del-tests": "Del. Tests",
+    }
 
     def __init__(self, precision: int = 1) -> None:
         self.precision = precision
+
+    def _col_controls_html(self, columns: dict[str, bool], labels: dict[str, str]) -> str:
+        """Render the column-visibility checkbox bar."""
+        parts = ['<div class="col-controls"><span class="col-controls-label">Columns:</span>']
+        for col, visible in columns.items():
+            checked = " checked" if visible else ""
+            label = _html.escape(labels.get(col, col))
+            parts.append(
+                f'<label><input type="checkbox" value="{col}"'
+                f' onchange="toggleCol(\'{col}\', this.checked)"{checked}>'
+                f' {label}</label>'
+            )
+        parts.append("</div>")
+        return "".join(parts)
+
+    @staticmethod
+    def _c(col: str, columns: dict[str, bool]) -> str:
+        """Return ' class="col-hidden"' when the column is configured as hidden."""
+        return ' class="col-hidden"' if not columns.get(col, True) else ""
 
     def write(self, report: CoverageReport, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -326,6 +365,8 @@ class HtmlReporter:
         folder_indent = depth * 24 + 4
         file_indent = depth * 24 + 28
         fmt = f".{self.precision}f"
+        idx = self.INDEX_COLUMNS
+        c = self._c  # shorthand: c(col, idx) → ' class="col-hidden"' or ''
 
         for name in sorted(node.subfolders):
             sub = node.subfolders[name]
@@ -347,10 +388,10 @@ class HtmlReporter:
                 f' onclick="toggleFolder(\'{fid}\')">'
                 f'<td style="padding-left:{folder_indent}px">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
-                f'<td data-col="stmts">{total}</td>'
-                f'<td data-col="total-pct">{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct">{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct">{incid_pct:{fmt}}%</td>'
+                f'<td data-col="stmts"{c("stmts", idx)}>{total}</td>'
+                f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
                 f'</tr>'
             )
             rows.extend(self._render_tree_rows(sub, depth + 1, fid))
@@ -367,10 +408,10 @@ class HtmlReporter:
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
                 f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
-                f'<td data-col="stmts">{total}</td>'
-                f'<td data-col="total-pct">{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct">{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct">{incid_pct:{fmt}}%</td>'
+                f'<td data-col="stmts"{c("stmts", idx)}>{total}</td>'
+                f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
                 f'</tr>'
             )
 
@@ -435,21 +476,26 @@ class HtmlReporter:
         escaped = _html.escape(source_text)
         branch_marker = '<td class="branch-warn" title="not all branches taken">⚑</td>' if partial else "<td></td>"
         class_attr = f' class="{css_class}"' if css_class else ""
+        fc = self.FILE_COLUMNS
+        c = self._c
         return (
             f'<tr{class_attr}>'
             f'<td>{lineno}</td>'
             f'{branch_marker}'
             f'<td><pre style="margin:0">{escaped}</pre></td>'
-            f'<td data-col="inc-exec">{inc_exec}</td>'
-            f'<td data-col="del-exec">{del_exec}</td>'
-            f'<td data-col="inc-asserts">{inc_asserts}</td>'
-            f'<td data-col="del-asserts">{del_asserts}</td>'
-            f'<td data-col="inc-tests">{inc_tests}</td>'
-            f'<td data-col="del-tests">{del_tests}</td>'
+            f'<td data-col="inc-exec"{c("inc-exec", fc)}>{inc_exec}</td>'
+            f'<td data-col="del-exec"{c("del-exec", fc)}>{del_exec}</td>'
+            f'<td data-col="inc-asserts"{c("inc-asserts", fc)}>{inc_asserts}</td>'
+            f'<td data-col="del-asserts"{c("del-asserts", fc)}>{del_asserts}</td>'
+            f'<td data-col="inc-tests"{c("inc-tests", fc)}>{inc_tests}</td>'
+            f'<td data-col="del-tests"{c("del-tests", fc)}>{del_tests}</td>'
             f'</tr>'
         )
 
     def render_index_page(self, rows_html: str) -> str:
+        idx = self.INDEX_COLUMNS
+        c = self._c
+        col_controls = self._col_controls_html(idx, self.INDEX_COL_LABELS)
         return (
             f'<!DOCTYPE html>'
             f'<html lang="en">'
@@ -463,14 +509,14 @@ class HtmlReporter:
             f'</head>'
             f'<body>'
             f'<h1>Coverage Stats</h1>'
-            f'{self.INDEX_COL_CONTROLS}'
+            f'{col_controls}'
             f'<table>'
             f'<thead><tr>'
             f'<th>File</th>'
-            f'<th data-col="stmts">Stmts</th>'
-            f'<th data-col="total-pct">Total %</th>'
-            f'<th data-col="delib-pct">Deliberate %</th>'
-            f'<th data-col="incid-pct">Incidental %</th>'
+            f'<th data-col="stmts"{c("stmts", idx)}>Stmts</th>'
+            f'<th data-col="total-pct"{c("total-pct", idx)}>Total %</th>'
+            f'<th data-col="delib-pct"{c("delib-pct", idx)}>Deliberate %</th>'
+            f'<th data-col="incid-pct"{c("incid-pct", idx)}>Incidental %</th>'
             f'</tr></thead>'
             f'<tbody>{rows_html}</tbody>'
             f'</table>'
@@ -480,6 +526,9 @@ class HtmlReporter:
 
     def render_file_page(self, rel_path: str, stats_html: str, lines_html: str) -> str:
         escaped_path = _html.escape(rel_path)
+        fc = self.FILE_COLUMNS
+        c = self._c
+        col_controls = self._col_controls_html(fc, self.FILE_COL_LABELS)
         return (
             f'<!DOCTYPE html>'
             f'<html lang="en">'
@@ -495,16 +544,16 @@ class HtmlReporter:
             f'<h1>{escaped_path}</h1>'
             f'<p><a href="index.html">Back to index</a></p>'
             f'{stats_html}'
-            f'{self.FILE_COL_CONTROLS}'
+            f'{col_controls}'
             f'<table>'
             f'<thead><tr>'
             f'<th>#</th><th></th><th>Source</th>'
-            f'<th data-col="inc-exec">Incidental Executions</th>'
-            f'<th data-col="del-exec">Deliberate Executions</th>'
-            f'<th data-col="inc-asserts">Incidental Asserts</th>'
-            f'<th data-col="del-asserts">Deliberate Asserts</th>'
-            f'<th data-col="inc-tests">Incidental Tests</th>'
-            f'<th data-col="del-tests">Deliberate Tests</th>'
+            f'<th data-col="inc-exec"{c("inc-exec", fc)}>Incidental Executions</th>'
+            f'<th data-col="del-exec"{c("del-exec", fc)}>Deliberate Executions</th>'
+            f'<th data-col="inc-asserts"{c("inc-asserts", fc)}>Incidental Asserts</th>'
+            f'<th data-col="del-asserts"{c("del-asserts", fc)}>Deliberate Asserts</th>'
+            f'<th data-col="inc-tests"{c("inc-tests", fc)}>Incidental Tests</th>'
+            f'<th data-col="del-tests"{c("del-tests", fc)}>Deliberate Tests</th>'
             f'</tr></thead>'
             f'<tbody>{lines_html}</tbody>'
             f'</table>'

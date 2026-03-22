@@ -746,3 +746,259 @@ def test_subclass_render_tree_rows_override_is_called(tmp_path):
     FlatReporter().write(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert "flat-row" in content
+
+
+# ---------------------------------------------------------------------------
+# Column controls — checkboxes and data-col attributes
+# ---------------------------------------------------------------------------
+
+# Columns that can be toggled on the index page and their checkbox labels
+_INDEX_TOGGLEABLE_COLS = {
+    "stmts": "Stmts",
+    "total-pct": "Total %",
+    "delib-pct": "Deliberate %",
+    "incid-pct": "Incidental %",
+}
+
+# Columns that can be toggled on the file page and their checkbox labels
+_FILE_TOGGLEABLE_COLS = {
+    "inc-exec": "Inc. Executions",
+    "del-exec": "Del. Executions",
+    "inc-asserts": "Inc. Asserts",
+    "del-asserts": "Del. Asserts",
+    "inc-tests": "Inc. Tests",
+    "del-tests": "Del. Tests",
+}
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_page_has_col_controls():
+    html = render_index_page("")
+    assert 'class="col-controls"' in html
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_col_controls_has_checkbox_for_every_toggleable_column():
+    html = render_index_page("")
+    for col_id in _INDEX_TOGGLEABLE_COLS:
+        assert f'value="{col_id}"' in html, f"checkbox for column '{col_id}' missing from index"
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_all_checkboxes_checked_by_default():
+    """All column checkboxes must start checked so all columns are visible on first load."""
+    import re
+    html = render_index_page("")
+    checkboxes = re.findall(r'<input[^>]+type="checkbox"[^>]*>', html)
+    for cb in checkboxes:
+        assert re.search(r'\schecked\s*>', cb), f"checkbox not checked by default: {cb}"
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_each_toggleable_column_has_data_col_on_header():
+    html = render_index_page("")
+    for col_id in _INDEX_TOGGLEABLE_COLS:
+        assert f'<th data-col="{col_id}">' in html, f"th data-col='{col_id}' missing from index header"
+
+
+@covers(_render_tree_rows)
+def test_index_each_toggleable_column_has_data_col_on_data_cells():
+    """Every data cell in a toggleable column must carry its data-col attribute so the JS can find it."""
+    summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3, deliberate_covered=2, incidental_covered=1)]
+    tree = build_folder_tree(summaries)
+    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    for col_id in _INDEX_TOGGLEABLE_COLS:
+        assert f'data-col="{col_id}"' in html, f"td data-col='{col_id}' missing from index rows"
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_no_col_hidden_class_by_default():
+    """No column should be hidden in the static HTML — hiding is applied by JS from localStorage.
+    We check only the <body> since the CSS itself contains the .col-hidden rule as text."""
+    html = render_index_page("")
+    body = html[html.index("<body>"):]
+    assert "col-hidden" not in body
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_page_has_col_controls(tmp_path):
+    html = render_file_page("src/foo.py", "", "")
+    assert 'class="col-controls"' in html
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_col_controls_has_checkbox_for_every_toggleable_column():
+    html = render_file_page("src/foo.py", "", "")
+    for col_id in _FILE_TOGGLEABLE_COLS:
+        assert f'value="{col_id}"' in html, f"checkbox for column '{col_id}' missing from file page"
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_all_checkboxes_checked_by_default():
+    """All column checkboxes on the file page must start checked."""
+    import re
+    html = render_file_page("src/foo.py", "", "")
+    checkboxes = re.findall(r'<input[^>]+type="checkbox"[^>]*>', html)
+    for cb in checkboxes:
+        assert re.search(r'\schecked\s*>', cb), f"checkbox not checked by default: {cb}"
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_each_toggleable_column_has_data_col_on_header():
+    html = render_file_page("src/foo.py", "", "")
+    for col_id in _FILE_TOGGLEABLE_COLS:
+        assert f'<th data-col="{col_id}">' in html, f"th data-col='{col_id}' missing from file page header"
+
+
+@covers(HtmlReporter.render_line)
+def test_file_each_toggleable_column_has_data_col_on_data_cells():
+    """Every data cell in a toggleable column must carry its data-col attribute."""
+    from coverage_stats.store import LineData
+    ld = LineData(incidental_executions=1, deliberate_executions=2,
+                  incidental_asserts=3, deliberate_asserts=4,
+                  incidental_tests=5, deliberate_tests=6)
+    html = render_line(1, "x = 1", ld, executable=True)
+    for col_id in _FILE_TOGGLEABLE_COLS:
+        assert f'data-col="{col_id}"' in html, f"td data-col='{col_id}' missing from line row"
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_no_col_hidden_class_by_default():
+    """No column should be hidden in the static HTML — hiding is applied by JS from localStorage.
+    We check only the <body> since the CSS itself contains the .col-hidden rule as text."""
+    html = render_file_page("src/foo.py", "", "")
+    body = html[html.index("<body>"):]
+    assert "col-hidden" not in body
+
+
+@covers(HtmlReporter.render_index_page, HtmlReporter.render_file_page)
+def test_col_controls_checkbox_values_match_data_col_attributes():
+    """The value of every checkbox must exactly match a data-col attribute in the same page,
+    so that the JS toggleCol() function can find the cells to hide/show."""
+    import re
+
+    index_html = render_index_page("<tr><td>x</td><td data-col='stmts'>1</td></tr>")
+    index_cb_values = set(re.findall(r'<input[^>]+type="checkbox"[^>]+value="([^"]+)"', index_html))
+    index_data_cols = set(re.findall(r'data-col="([^"]+)"', index_html))
+    assert index_cb_values == index_data_cols & index_cb_values, (
+        f"index checkbox values {index_cb_values} not all present as data-col: {index_data_cols}"
+    )
+
+    file_html = render_file_page("f.py", "", "<tr><td>1</td><td></td><td>src</td>"
+                                 + "".join(f'<td data-col="{c}">0</td>' for c in _FILE_TOGGLEABLE_COLS)
+                                 + "</tr>")
+    file_cb_values = set(re.findall(r'<input[^>]+type="checkbox"[^>]+value="([^"]+)"', file_html))
+    file_data_cols = set(re.findall(r'data-col="([^"]+)"', file_html))
+    assert file_cb_values == file_data_cols & file_cb_values, (
+        f"file checkbox values {file_cb_values} not all present as data-col: {file_data_cols}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Python-controlled initial column visibility via INDEX_COLUMNS / FILE_COLUMNS
+# ---------------------------------------------------------------------------
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_column_gets_col_hidden_when_python_config_is_false():
+    """Setting INDEX_COLUMNS[col] = False must bake col-hidden into the th and td cells."""
+    class _R(HtmlReporter):
+        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": False}
+
+    reporter = _R()
+    summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
+    tree = build_folder_tree(summaries)
+    rows_html = "".join(reporter._render_tree_rows(tree, depth=0, parent_id=""))
+    html = reporter.render_index_page(rows_html)
+    body = html[html.index("<body>"):]
+
+    assert 'data-col="stmts" class="col-hidden"' in body, "th for stmts should carry col-hidden"
+    assert 'data-col="total-pct" class="col-hidden"' not in body, "other cols must not be hidden"
+
+@covers(HtmlReporter.render_index_page)
+def test_index_column_gets_col_hidden_when_python_config_is_true():
+    """Setting INDEX_COLUMNS[col] = True must NOT add col-hidden to that column's cells."""
+    class _R(HtmlReporter):
+        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": True}
+
+    reporter = _R()
+    summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
+    tree = build_folder_tree(summaries)
+    rows_html = "".join(reporter._render_tree_rows(tree, depth=0, parent_id=""))
+    html = reporter.render_index_page(rows_html)
+    body = html[html.index("<body>"):]
+
+    # Column is visible: header and data cells render without col-hidden
+    assert '<th data-col="stmts">' in body, "stmts th must be present and visible"
+    assert 'data-col="stmts">5</td>' in body, "stmts td must contain the value without col-hidden"
+    assert 'data-col="stmts" class="col-hidden"' not in body, "th for stmts must not carry col-hidden when True"
+    assert 'data-col="total-pct" class="col-hidden"' not in body, "other cols must not be hidden"
+
+
+@covers(HtmlReporter.render_index_page)
+def test_index_checkbox_unchecked_when_python_config_is_false():
+    """Setting INDEX_COLUMNS[col] = False must render the checkbox without 'checked'."""
+    import re
+
+    class _R(HtmlReporter):
+        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": False}
+
+    html = _R().render_index_page("")
+    stmts_cb = re.search(r'<input[^>]+value="stmts"[^>]*>', html)
+    assert stmts_cb, "stmts checkbox not found"
+    # Check for 'checked' as a standalone HTML attribute (not inside 'this.checked' in onchange)
+    assert not re.search(r'\schecked\s*>', stmts_cb.group(0)), (
+        "stmts checkbox must be unchecked when config is False"
+    )
+
+    # All other index checkboxes should remain checked
+    for col_id in ("total-pct", "delib-pct", "incid-pct"):
+        other_cb = re.search(rf'<input[^>]+value="{col_id}"[^>]*>', html)
+        assert other_cb and re.search(r'\schecked\s*>', other_cb.group(0)), (
+            f"checkbox for '{col_id}' should be checked"
+        )
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_column_gets_col_hidden_when_python_config_is_false():
+    """Setting FILE_COLUMNS[col] = False must bake col-hidden into the th and the line td cells."""
+    from coverage_stats.store import LineData
+
+    class _R(HtmlReporter):
+        FILE_COLUMNS = {**HtmlReporter.FILE_COLUMNS, "inc-exec": False}
+
+    reporter = _R()
+    ld = LineData(incidental_executions=1, deliberate_executions=2,
+                  incidental_asserts=3, deliberate_asserts=4,
+                  incidental_tests=5, deliberate_tests=6)
+    line_html = reporter.render_line(1, "x = 1", ld, executable=True)
+    html = reporter.render_file_page("f.py", "", line_html)
+    body = html[html.index("<body>"):]
+
+    assert 'data-col="inc-exec" class="col-hidden"' in body, "th for inc-exec should carry col-hidden"
+    assert 'data-col="inc-exec" class="col-hidden"' in line_html, "td in line row should carry col-hidden"
+    assert 'data-col="del-exec" class="col-hidden"' not in body, "other cols must not be hidden"
+
+
+@covers(HtmlReporter.render_file_page)
+def test_file_checkbox_unchecked_when_python_config_is_false():
+    """Setting FILE_COLUMNS[col] = False must render the checkbox without 'checked'."""
+    import re
+
+    class _R(HtmlReporter):
+        FILE_COLUMNS = {**HtmlReporter.FILE_COLUMNS, "inc-exec": False}
+
+    html = _R().render_file_page("f.py", "", "")
+    inc_exec_cb = re.search(r'<input[^>]+value="inc-exec"[^>]*>', html)
+    assert inc_exec_cb, "inc-exec checkbox not found"
+    # Check for 'checked' as a standalone HTML attribute (not inside 'this.checked' in onchange)
+    assert not re.search(r'\schecked\s*>', inc_exec_cb.group(0)), (
+        "inc-exec checkbox must be unchecked when config is False"
+    )
+
+    # All other file checkboxes should remain checked
+    for col_id in ("del-exec", "inc-asserts", "del-asserts", "inc-tests", "del-tests"):
+        other_cb = re.search(rf'<input[^>]+value="{col_id}"[^>]*>', html)
+        assert other_cb and re.search(r'\schecked\s*>', other_cb.group(0)), (
+            f"checkbox for '{col_id}' should be checked"
+        )
