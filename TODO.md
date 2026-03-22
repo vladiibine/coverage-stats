@@ -8,6 +8,8 @@ CORE
   * [v] add "number of incidental/deliberate tests that ran on this line of code"  
   * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
   * [v] assert_counter.py -> the assert incrementing logic there seems to belong more in the LineProfiler. Move it there if possible, or at least allow the user to parametrize it
+  * [v] Test library via itself! See how well it’s intentionally covered
+  * add tests invoking the library together with coverage.py / xdist / both
 
 REPORTING:
   * ordering or html columns

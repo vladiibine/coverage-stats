@@ -16,3 +16,4 @@ _bmad/
 html-cov/
 vwh_*
 .nox/
+coverage-stats-report/

@@ -10,9 +10,15 @@ PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 @nox.session(python=PYTHON_VERSIONS)
 def tests(session: nox.Session) -> None:
     """Run the unit and integration test suite."""
-    session.install(".")
+    session.install("-e", ".")
     session.install("pytest")
-    session.run("pytest", "tests/", *session.posargs)
+    session.run(
+        "pytest", "tests/",
+        "--coverage-stats",
+        "--coverage-stats-format", "html",
+        "--coverage-stats-output", f"coverage-stats-report/{session.python}",
+        *session.posargs,
+    )
 
 
 @nox.session
