@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import types
 
-from coverage_stats.assert_counter import distribute_asserts, record_assertion
 from coverage_stats.profiler import ProfilerContext
 from coverage_stats.store import SessionStore
 
@@ -16,32 +15,32 @@ def make_item(covers_lines=frozenset()):
 
 def test_record_assertion_increments_during_call_phase():
     ctx = ProfilerContext(current_phase="call", current_test_item=make_item())
-    record_assertion(ctx)
+    ctx.record_assertion()
     assert ctx.current_assert_count == 1
 
 
 def test_record_assertion_does_not_increment_during_setup_phase():
     ctx = ProfilerContext(current_phase="setup", current_test_item=make_item())
-    record_assertion(ctx)
+    ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
 def test_record_assertion_does_not_increment_during_teardown_phase():
     ctx = ProfilerContext(current_phase="teardown", current_test_item=make_item())
-    record_assertion(ctx)
+    ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
 def test_record_assertion_does_not_increment_when_no_test_item():
     ctx = ProfilerContext(current_phase="call", current_test_item=None)
-    record_assertion(ctx)
+    ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
 def test_record_assertion_accumulates_multiple_calls():
     ctx = ProfilerContext(current_phase="call", current_test_item=make_item())
-    record_assertion(ctx)
-    record_assertion(ctx)
+    ctx.record_assertion()
+    ctx.record_assertion()
     assert ctx.current_assert_count == 2
 
 
@@ -59,7 +58,7 @@ def test_distribute_asserts_no_asserts_still_records_test_counts():
     f = "/fake/file.py"
     ctx.current_test_lines = {(f, 1), (f, 2)}
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     for key in [(f, 1), (f, 2)]:
         ld = store.get_or_create(key)
@@ -81,7 +80,7 @@ def test_distribute_asserts_two_asserts_three_incidental_lines():
     )
     ctx.current_test_lines = set(lines)
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     for key in lines:
         ld = store.get_or_create(key)
@@ -105,7 +104,7 @@ def test_distribute_asserts_mixed_deliberate_and_incidental():
     )
     ctx.current_test_lines = {deliberate_key, incidental_key}
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     assert store.get_or_create(deliberate_key).deliberate_asserts == 1
     assert store.get_or_create(deliberate_key).incidental_asserts == 0
@@ -126,7 +125,7 @@ def test_distribute_asserts_empty_lines_non_zero_count():
     )
     ctx.current_test_lines = set()
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     assert store._data == {}  # no lines → nothing written
     assert ctx.current_assert_count == 0
@@ -161,7 +160,7 @@ def test_distribute_asserts_records_incidental_test_count():
     )
     ctx.current_test_lines = {(f, 1), (f, 2)}
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     assert store.get_or_create((f, 1)).incidental_tests == 1
     assert store.get_or_create((f, 2)).incidental_tests == 1
@@ -181,7 +180,7 @@ def test_distribute_asserts_records_deliberate_test_count():
     )
     ctx.current_test_lines = {deliberate_key, incidental_key}
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     assert store.get_or_create(deliberate_key).deliberate_tests == 1
     assert store.get_or_create(deliberate_key).incidental_tests == 0
@@ -202,7 +201,7 @@ def test_distribute_asserts_accumulates_test_counts_across_calls():
             current_assert_count=1,
         )
         ctx.current_test_lines = {key}
-        distribute_asserts(ctx, store)
+        ctx.distribute_asserts(store)
 
     assert store.get_or_create(key).incidental_tests == 3
 
@@ -218,7 +217,7 @@ def test_distribute_asserts_resets_count_and_lines_after_distribution():
     )
     ctx.current_test_lines = {(f, 10)}
 
-    distribute_asserts(ctx, store)
+    ctx.distribute_asserts(store)
 
     assert ctx.current_assert_count == 0
     assert ctx.current_test_lines == set()

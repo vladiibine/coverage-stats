@@ -133,7 +133,7 @@ class CoverageStatsPlugin:
     and ``deliberate_asserts``.
 
     Assert counts are not recorded per-line as assertions fire; instead they are
-    distributed at teardown by ``assert_counter.distribute_asserts``, which spreads
+    distributed at teardown by ``ProfilerContext.distribute_asserts``, which spreads
     ``current_assert_count`` across every line that was executed during that test's
     ``call`` phase (stored in ``ProfilerContext.current_test_lines``).
 
@@ -220,9 +220,8 @@ class CoverageStatsPlugin:
             return
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
         ctx.current_phase = "teardown"
-        from coverage_stats.assert_counter import distribute_asserts
         assert self._store is not None
-        distribute_asserts(ctx, self._store)
+        ctx.distribute_asserts(self._store)
         # Reset after teardown completes
         ctx.current_phase = None
         ctx.current_test_item = None
@@ -231,9 +230,8 @@ class CoverageStatsPlugin:
         """Increment the assert counter each time an assertion passes during 'call'."""
         if not self._enabled:
             return
-        from coverage_stats.assert_counter import record_assertion
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
-        record_assertion(ctx)
+        ctx.record_assertion()
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: _XdistWorkerNode, error: BaseException | None) -> None:

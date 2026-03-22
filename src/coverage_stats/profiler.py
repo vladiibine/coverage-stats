@@ -28,6 +28,30 @@ class ProfilerContext:
     # (including bodies of functions called at import time) are recorded.
     pre_test_lines: set[tuple[str, int]] = field(default_factory=set)
 
+    def record_assertion(self) -> None:
+        """Increment the assert counter when an assertion passes during the call phase."""
+        if self.current_phase == "call" and self.current_test_item is not None:
+            self.current_assert_count += 1
+
+    def distribute_asserts(self, store: SessionStore) -> None:
+        """Distribute accumulated assert count to every line executed this test, then reset."""
+        covers_lines: frozenset[tuple[str, int]] = getattr(
+            self.current_test_item, "_covers_lines", frozenset()
+        )
+        count = self.current_assert_count
+        for key in self.current_test_lines:
+            ld = store.get_or_create(key)
+            if key in covers_lines:
+                if count:
+                    ld.deliberate_asserts += count
+                ld.deliberate_tests += 1
+            else:
+                if count:
+                    ld.incidental_asserts += count
+                ld.incidental_tests += 1
+        self.current_assert_count = 0
+        self.current_test_lines.clear()
+
 
 class LineTracer:
     def __init__(self, context: ProfilerContext, store: SessionStore) -> None:
