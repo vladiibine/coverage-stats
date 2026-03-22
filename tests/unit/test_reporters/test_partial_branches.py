@@ -5,8 +5,9 @@ import textwrap
 
 import pytest
 
+from coverage_stats import covers
 from coverage_stats.store import LineData
-from coverage_stats.reporters.report_data import _analyze_branches
+from coverage_stats.reporters.report_data import _analyze_branches, DefaultReportBuilder
 from coverage_stats.executable_lines import get_executable_lines
 
 
@@ -30,6 +31,7 @@ def _write(tmp_path, src: str) -> str:
 # get_executable_lines — case pattern lines
 # ---------------------------------------------------------------------------
 
+@covers(get_executable_lines)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_case_lines_are_executable(tmp_path):
     path = _write(tmp_path, """\
@@ -54,6 +56,7 @@ def test_match_case_lines_are_executable(tmp_path):
 # _get_partial_branches — match statements
 # ---------------------------------------------------------------------------
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_case1_always_matched_is_partial(tmp_path):
     """case 1 was always matched → next case never tried → case 1 line is partial."""
@@ -80,6 +83,7 @@ def test_match_case1_always_matched_is_partial(tmp_path):
     assert case2_line not in result  # missing, not partial
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_all_cases_taken_not_partial(tmp_path):
     """All cases were entered at least once → no case line is partial."""
@@ -112,6 +116,7 @@ def test_match_all_cases_taken_not_partial(tmp_path):
     assert case_wild_line not in result
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_case_never_reached_not_partial(tmp_path):
     """A case whose pattern line was never executed is missing, not partial."""
@@ -136,6 +141,7 @@ def test_match_case_never_reached_not_partial(tmp_path):
     assert case2_line not in result
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_case_never_matched_is_partial(tmp_path):
     """A case was reached (pattern evaluated) but never matched → body never ran → partial."""
@@ -161,6 +167,7 @@ def test_match_case_never_matched_is_partial(tmp_path):
     assert case1_line in result
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_last_case_not_taken_is_partial(tmp_path):
     """Last case was reached but its body never ran → partial."""
@@ -186,6 +193,7 @@ def test_match_last_case_not_taken_is_partial(tmp_path):
     assert case2_line in result
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_last_case_taken_not_partial(tmp_path):
     """Last case reached and body ran → not partial."""
@@ -213,6 +221,7 @@ def test_match_last_case_taken_not_partial(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_both_taken(tmp_path):
     """if with both branches taken → no partial, arcs_total=2, arcs_covered=2."""
     path = _write(tmp_path, """\
@@ -237,6 +246,7 @@ def test_analyze_branches_if_both_taken(tmp_path):
     assert result.arcs_covered == 2
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_false_not_taken(tmp_path):
     """if with true branch only → partial, arcs_total=2, arcs_covered=1."""
     path = _write(tmp_path, """\
@@ -257,6 +267,7 @@ def test_analyze_branches_if_false_not_taken(tmp_path):
     assert result.arcs_covered == 1
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_for_body_not_taken(tmp_path):
     """for loop over empty iterable → body never ran → partial, arcs_total=2, arcs_covered=1."""
     path = _write(tmp_path, """\
@@ -276,6 +287,7 @@ def test_analyze_branches_for_body_not_taken(tmp_path):
     assert result.arcs_covered == 1
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_unreached_branch_contributes_missed_arcs(tmp_path):
     """if block never reached → arcs_total=2, arcs_covered=0."""
     path = _write(tmp_path, """\
@@ -292,6 +304,7 @@ def test_analyze_branches_unreached_branch_contributes_missed_arcs(tmp_path):
     assert result.arcs_covered == 0
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_analyze_branches_match_wildcard_last_case(tmp_path):
     """Wildcard last case contributes 0 arcs."""
@@ -318,6 +331,7 @@ def test_analyze_branches_match_wildcard_last_case(tmp_path):
     assert case_wild_line not in result.partial
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
     """Non-wildcard last case contributes 1 arc."""
@@ -355,6 +369,7 @@ def _ld_di(ie=0, de=0) -> LineData:
     return ld
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_true_arc_deliberate(tmp_path):
     """Body run deliberately → true arc counted in arcs_deliberate."""
     path = _write(tmp_path, """\
@@ -371,6 +386,7 @@ def test_analyze_branches_if_true_arc_deliberate(tmp_path):
     assert result.arcs_incidental == 0
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_true_arc_incidental(tmp_path):
     """Body run incidentally → true arc counted in arcs_incidental."""
     path = _write(tmp_path, """\
@@ -387,6 +403,7 @@ def test_analyze_branches_if_true_arc_incidental(tmp_path):
     assert result.arcs_incidental == 1   # true arc taken incidentally
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_false_arc_no_orelse_deliberate(tmp_path):
     """Condition evaluated more times than body during deliberate tests → false arc deliberate."""
     path = _write(tmp_path, """\
@@ -404,6 +421,7 @@ def test_analyze_branches_if_false_arc_no_orelse_deliberate(tmp_path):
     assert result.arcs_incidental == 0
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 def test_analyze_branches_if_both_arcs_deliberate_and_incidental(tmp_path):
     """Same arc taken in both deliberate and incidental tests — counted in both."""
     path = _write(tmp_path, """\
@@ -420,6 +438,7 @@ def test_analyze_branches_if_both_arcs_deliberate_and_incidental(tmp_path):
     assert result.arcs_incidental == 1   # true arc (body covered incidentally)
 
 
+@covers(DefaultReportBuilder._analyze_branches)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_analyze_branches_match_arc_deliberate(tmp_path):
     """Match body taken deliberately → arc counted in arcs_deliberate."""

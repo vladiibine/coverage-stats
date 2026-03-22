@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from coverage_stats import covers
 from coverage_stats.store import LineData, SessionStore
 
 
+@covers(LineData)
 class TestLineDataDefaults:
     def test_all_fields_default_to_zero(self) -> None:
         ld = LineData()
@@ -14,6 +16,7 @@ class TestLineDataDefaults:
         assert ld.deliberate_tests == 0
 
 
+@covers(SessionStore.get_or_create)
 class TestSessionStoreGetOrCreate:
     def test_new_key_returns_zero_line_data(self) -> None:
         store = SessionStore()
@@ -38,6 +41,7 @@ class TestSessionStoreGetOrCreate:
         assert ld_second.deliberate_executions == 5
 
 
+@covers(SessionStore.merge)
 class TestSessionStoreMerge:
     def test_merge_additive_shared_key(self) -> None:
         key = ("/a/b.py", 1)
@@ -87,6 +91,7 @@ class TestSessionStoreMerge:
         assert store_a.get_or_create(key_b).deliberate_executions == 5
 
 
+@covers(SessionStore.to_dict)
 class TestSessionStoreToDict:
     def test_empty_store_returns_empty_dict(self) -> None:
         store = SessionStore()
@@ -106,6 +111,7 @@ class TestSessionStoreToDict:
         assert result["/some/path.py\x0099"] == [1, 2, 3, 4, 0, 0]
 
 
+@covers(SessionStore.to_dict, SessionStore.from_dict)
 class TestSessionStoreRoundTrip:
     def test_round_trip_identical_keys_and_values(self) -> None:
         store = SessionStore()

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from coverage_stats import covers
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.json_reporter import write_json
 from coverage_stats.reporters.report_data import build_report
@@ -13,6 +14,7 @@ def make_config(rootdir: Path) -> SimpleNamespace:
     return SimpleNamespace(rootpath=rootdir)
 
 
+@covers(write_json)
 def test_empty_store_produces_empty_files(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
@@ -22,6 +24,7 @@ def test_empty_store_produces_empty_files(tmp_path):
     assert result == {"files": {}}
 
 
+@covers(write_json)
 def test_single_file_multi_line_structure(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -44,6 +47,7 @@ def test_single_file_multi_line_structure(tmp_path):
     assert file_data["lines"]["3"]["deliberate_executions"] == 2
 
 
+@covers(write_json)
 def test_summary_calculations(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -68,6 +72,7 @@ def test_summary_calculations(tmp_path):
     assert summary["incidental_coverage_pct"] == 0.0
 
 
+@covers(write_json)
 def test_assert_density_calculation(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -93,6 +98,7 @@ def test_assert_density_calculation(tmp_path):
     assert summary["deliberate_assert_density"] == 2 / 2
 
 
+@covers(write_json)
 def test_path_outside_rootdir_fallback(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -112,6 +118,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
     assert expected_key in result["files"]
 
 
+@covers(write_json)
 def test_lineno_keys_are_strings(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -131,6 +138,7 @@ def test_lineno_keys_are_strings(tmp_path):
     assert 42 not in file_lines
 
 
+@covers(write_json)
 def test_partial_line_flag_present(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -149,6 +157,7 @@ def test_partial_line_flag_present(tmp_path):
     assert "partial" in line
 
 
+@covers(write_json)
 def test_non_partial_line_flag_is_false(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -166,6 +175,7 @@ def test_non_partial_line_flag_is_false(tmp_path):
     assert line["partial"] is False
 
 
+@covers(write_json)
 def test_output_dir_created_if_missing(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)

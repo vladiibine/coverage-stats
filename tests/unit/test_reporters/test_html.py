@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from coverage_stats import covers
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.html import (
     HtmlReporter,
@@ -62,6 +63,7 @@ def make_config(rootdir: Path) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
+@covers(write_html)
 def test_empty_store_writes_index(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
@@ -70,6 +72,7 @@ def test_empty_store_writes_index(tmp_path):
     assert (tmp_path / "out" / "index.html").exists()
 
 
+@covers(write_html)
 def test_empty_store_no_per_file_pages(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
@@ -80,6 +83,7 @@ def test_empty_store_no_per_file_pages(tmp_path):
     assert html_files == [out_dir / "index.html"]
 
 
+@covers(write_html)
 def test_single_file_writes_per_file_page(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -93,6 +97,7 @@ def test_single_file_writes_per_file_page(tmp_path):
     assert (out_dir / "src__foo.py.html").exists()
 
 
+@covers(write_html)
 def test_index_contains_table_and_folder_row(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -108,6 +113,7 @@ def test_index_contains_table_and_folder_row(tmp_path):
     assert "folder-row" in content
 
 
+@covers(write_html)
 def test_index_contains_folder_name(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -122,6 +128,7 @@ def test_index_contains_folder_name(tmp_path):
     assert "src" in content
 
 
+@covers(write_html)
 def test_multiple_folders_appear_in_single_table(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -139,6 +146,7 @@ def test_multiple_folders_appear_in_single_table(tmp_path):
     assert content.count('class="folder-row"') == 2  # one row per top-level folder
 
 
+@covers(write_html)
 def test_per_file_page_contains_lineno(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -153,6 +161,7 @@ def test_per_file_page_contains_lineno(tmp_path):
     assert "42" in content
 
 
+@covers(write_html)
 def test_deliberate_line_gets_green_class(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -167,6 +176,7 @@ def test_deliberate_line_gets_green_class(tmp_path):
     assert "deliberate" in content
 
 
+@covers(write_html)
 def test_incidental_only_line_gets_yellow_class(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -183,6 +193,7 @@ def test_incidental_only_line_gets_yellow_class(tmp_path):
     assert "incidental" in content
 
 
+@covers(write_html)
 def test_per_file_page_shows_all_source_lines(tmp_path):
     """All lines in the source file must appear, not just covered lines."""
     rootdir = tmp_path / "project"
@@ -205,6 +216,7 @@ def test_per_file_page_shows_all_source_lines(tmp_path):
         assert f"<td>{lineno}</td>" in content, f"Line {lineno} missing from file page"
 
 
+@covers(write_html)
 def test_per_file_page_shows_uncovered_source_text(tmp_path):
     """Source text of uncovered lines must appear in the page."""
     rootdir = tmp_path / "project"
@@ -225,6 +237,7 @@ def test_per_file_page_shows_uncovered_source_text(tmp_path):
     assert "uncovered_line" in content
 
 
+@covers(write_html)
 def test_uncovered_lines_have_no_highlight_class(tmp_path):
     """Lines with no coverage data must not get the 'deliberate' or 'incidental' class."""
     rootdir = tmp_path / "project"
@@ -253,6 +266,7 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
         assert 'class="incidental"' not in row
 
 
+@covers(write_html)
 def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     """The stmt count in the index summary must equal the file's executable statements."""
     rootdir = tmp_path / "project"
@@ -276,6 +290,7 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     assert "<td>2</td>" not in content
 
 
+@covers(write_html)
 def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     """An empty (0-byte) source file must show 0 stmts in the index even if the
     tracer recorded a phantom line-1 entry for it (Python fires an implicit trace
@@ -307,6 +322,7 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     assert match.group(1) == "0", f"expected 0 stmts for empty __init__.py, got {match.group(1)}"
 
 
+@covers(write_html)
 def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
     """For a file that does not exist on disk, total_stmts should fall back to
     the number of lines recorded in the store (the pre-fix behaviour for
@@ -330,6 +346,7 @@ def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
     assert "<td>2</td>" in content
 
 
+@covers(write_html)
 def test_unreadable_source_falls_back_gracefully(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -347,6 +364,7 @@ def test_unreadable_source_falls_back_gracefully(tmp_path):
     assert "1" in content
 
 
+@covers(write_html)
 def test_path_outside_rootdir_fallback(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -362,6 +380,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
     assert "baz.py" in content
 
 
+@covers(write_html)
 def test_output_dir_created_if_missing(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
@@ -387,6 +406,7 @@ def _make_ld(ie=0, de=0, ia=0, da=0):
     )
 
 
+@covers(render_line)
 def test_render_line_deliberate_class():
     ld = _make_ld(de=1)
     result = render_line(1, "x = 1", ld, executable=True)
@@ -394,18 +414,21 @@ def test_render_line_deliberate_class():
     assert "<td>1</td>" in result
 
 
+@covers(render_line)
 def test_render_line_incidental_class():
     ld = _make_ld(ie=2)
     result = render_line(7, "pass", ld, executable=True)
     assert 'class="incidental"' in result
 
 
+@covers(render_line)
 def test_render_line_missed_executable_gets_missed_class():
     ld = _make_ld()
     result = render_line(3, "import os", ld, executable=True)
     assert 'class="missed"' in result
 
 
+@covers(render_line)
 def test_render_line_non_executable_no_class():
     ld = _make_ld(de=1)
     result = render_line(3, "# comment", ld, executable=False)
@@ -413,11 +436,13 @@ def test_render_line_non_executable_no_class():
     assert "<tr>" in result
 
 
+@covers(render_line)
 def test_render_line_missed_class():
     result = render_line(5, "x = 1", None, executable=True)
     assert 'class="missed"' in result
 
 
+@covers(render_line)
 def test_render_line_escapes_html():
     ld = _make_ld()
     result = render_line(1, "<script>alert(1)</script>", ld, executable=True)
@@ -425,6 +450,7 @@ def test_render_line_escapes_html():
     assert "&lt;script&gt;" in result
 
 
+@covers(build_folder_tree)
 def test_build_file_tree_groups_by_folder():
     summaries = [
         _make_file_summary("src/a.py", total_stmts=10, total_covered=7, deliberate_covered=5, incidental_covered=3),
@@ -439,6 +465,7 @@ def test_build_file_tree_groups_by_folder():
     assert src_node.subfolders["sub"].files[0].rel_path == "src/sub/b.py"
 
 
+@covers(build_folder_tree)
 def test_folder_node_aggregates_stats():
     summaries = [
         _make_file_summary("src/a.py", total_stmts=10, total_covered=7, arcs_total=4, arcs_covered=3, arcs_deliberate=2, arcs_incidental=1, deliberate_covered=5, incidental_covered=3),
@@ -456,6 +483,7 @@ def test_folder_node_aggregates_stats():
     assert src.agg_arcs_incidental() == 1
 
 
+@covers(_render_tree_rows)
 def test_render_tree_rows_contains_link_and_folder():
     summaries = [_make_file_summary("src/foo.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=2)]
     tree = build_folder_tree(summaries)
@@ -465,6 +493,7 @@ def test_render_tree_rows_contains_link_and_folder():
     assert "src/" in html  # folder row
 
 
+@covers(_render_tree_rows)
 def test_render_tree_rows_pct_calculation():
     summaries = [_make_file_summary("src/x.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=0)]
     tree = build_folder_tree(summaries)
@@ -473,6 +502,7 @@ def test_render_tree_rows_pct_calculation():
     assert "66.7%" in html  # 2/3 total on file row
 
 
+@covers(render_index_page)
 def test_render_index_page_full_html():
     result = render_index_page("<tr><td>row</td></tr>")
     assert "<!DOCTYPE html>" in result
@@ -482,6 +512,7 @@ def test_render_index_page_full_html():
     assert "<table>" in result
 
 
+@covers(render_file_page)
 def test_render_file_page_full_html():
     result = render_file_page("src/foo.py", "<div>stats</div>", "<tr><td>42</td></tr>")
     assert "<!DOCTYPE html>" in result
@@ -491,6 +522,7 @@ def test_render_file_page_full_html():
     assert "<style>" in result
 
 
+@covers(render_file_stats)
 def test_render_file_stats_shows_total_pct():
     result = render_file_stats(
         total_stmts=10, covered=7, total_pct=70.0,
@@ -501,6 +533,7 @@ def test_render_file_stats_shows_total_pct():
     assert "total %" in result
 
 
+@covers(build_folder_tree)
 def test_folder_node_agg_total_covered():
     summaries = [
         _make_file_summary("a/x.py", total_stmts=10, total_covered=8, deliberate_covered=6, incidental_covered=3),
@@ -511,6 +544,7 @@ def test_folder_node_agg_total_covered():
     assert node.agg_total_covered() == 11  # 8 + 3
 
 
+@covers(_render_tree_rows)
 def test_render_tree_rows_total_pct_column():
     summaries = [
         _make_file_summary("src/z.py", total_stmts=4, total_covered=3, deliberate_covered=2, incidental_covered=1),
@@ -521,6 +555,7 @@ def test_render_tree_rows_total_pct_column():
     assert "50.0%" in html   # 2/4 deliberate on file row
 
 
+@covers(render_index_page)
 def test_index_page_has_total_pct_header():
     result = render_index_page("")
     assert "Total %" in result
@@ -531,22 +566,27 @@ def test_index_page_has_total_pct_header():
 # ---------------------------------------------------------------------------
 
 
+@covers(HtmlReporter._missed_ranges)
 def test_missed_ranges_empty():
     assert HtmlReporter()._missed_ranges([]) == ""
 
 
+@covers(HtmlReporter._missed_ranges)
 def test_missed_ranges_single():
     assert HtmlReporter()._missed_ranges([7]) == "7"
 
 
+@covers(HtmlReporter._missed_ranges)
 def test_missed_ranges_consecutive_collapsed_to_range():
     assert HtmlReporter()._missed_ranges([3, 4, 5]) == "3-5"
 
 
+@covers(HtmlReporter._missed_ranges)
 def test_missed_ranges_non_consecutive():
     assert HtmlReporter()._missed_ranges([1, 3, 5]) == "1, 3, 5"
 
 
+@covers(HtmlReporter._missed_ranges)
 def test_missed_ranges_mixed():
     assert HtmlReporter()._missed_ranges([1, 2, 5, 6, 7, 10]) == "1-2, 5-7, 10"
 
@@ -556,12 +596,14 @@ def test_missed_ranges_mixed():
 # ---------------------------------------------------------------------------
 
 
+@covers(build_folder_tree)
 def test_build_folder_tree_groups_single_file():
     summaries = [_make_file_summary("src/a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
     tree = build_folder_tree(summaries)
     assert "src" in tree.subfolders
 
 
+@covers(build_folder_tree)
 def test_build_folder_tree_file_at_root_level():
     summaries = [_make_file_summary("a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
     tree = build_folder_tree(summaries)
@@ -574,24 +616,29 @@ def test_build_folder_tree_file_at_root_level():
 # ---------------------------------------------------------------------------
 
 
+@covers(HtmlReporter.render_index_page)
 def test_css_class_attribute_appears_in_index():
     result = HtmlReporter().render_index_page("")
     assert HtmlReporter.CSS in result
 
 
+@covers(HtmlReporter.render_index_page)
 def test_js_class_attribute_appears_in_index():
     result = HtmlReporter().render_index_page("")
     assert HtmlReporter.JS in result
 
 
+@covers(HtmlReporter.render_index_page)
 def test_extra_css_empty_by_default():
     assert HtmlReporter.EXTRA_CSS == ""
 
 
+@covers(HtmlReporter.render_index_page)
 def test_extra_js_empty_by_default():
     assert HtmlReporter.EXTRA_JS == ""
 
 
+@covers(HtmlReporter.render_index_page)
 def test_extra_css_injected_when_set_on_subclass():
     class StyledReporter(HtmlReporter):
         EXTRA_CSS = "body { background: black; }"
@@ -600,6 +647,7 @@ def test_extra_css_injected_when_set_on_subclass():
     assert "background: black" in result
 
 
+@covers(HtmlReporter.render_index_page)
 def test_extra_js_injected_when_set_on_subclass():
     class TrackedReporter(HtmlReporter):
         EXTRA_JS = "console.log('loaded');"
@@ -608,6 +656,7 @@ def test_extra_js_injected_when_set_on_subclass():
     assert "console.log('loaded');" in result
 
 
+@covers(HtmlReporter.render_index_page)
 def test_css_override_on_subclass_replaces_default():
     class MinimalReporter(HtmlReporter):
         CSS = "body { margin: 0; }"
@@ -622,6 +671,7 @@ def test_css_override_on_subclass_replaces_default():
 # ---------------------------------------------------------------------------
 
 
+@covers(HtmlReporter.write)
 def test_subclass_render_line_override_is_called(tmp_path):
     """write() must call self.render_line(), not the module-level shim."""
     class MarkedReporter(HtmlReporter):
@@ -641,6 +691,7 @@ def test_subclass_render_line_override_is_called(tmp_path):
     assert "custom-row" in content
 
 
+@covers(HtmlReporter.write)
 def test_subclass_render_index_page_override_is_called(tmp_path):
     """write() must call self.render_index_page(), not the module-level shim."""
     class BrandedReporter(HtmlReporter):
@@ -657,6 +708,7 @@ def test_subclass_render_index_page_override_is_called(tmp_path):
     assert "My Company Coverage" in content
 
 
+@covers(HtmlReporter.write)
 def test_subclass_render_file_stats_override_is_called(tmp_path):
     """_write_file_page() must call self.render_file_stats()."""
     class NoStatsReporter(HtmlReporter):
@@ -676,6 +728,7 @@ def test_subclass_render_file_stats_override_is_called(tmp_path):
     assert "custom-stats" in content
 
 
+@covers(HtmlReporter.write)
 def test_subclass_render_tree_rows_override_is_called(tmp_path):
     """write() must call self._render_tree_rows(), so a subclass can customise the index table."""
     class FlatReporter(HtmlReporter):

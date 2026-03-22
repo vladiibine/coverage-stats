@@ -5,6 +5,7 @@ import types
 import warnings
 from pathlib import Path
 
+from coverage_stats import covers
 from coverage_stats.profiler import LineTracer, ProfilerContext
 from coverage_stats.plugin import _flush_pre_test_lines
 from coverage_stats.store import SessionStore
@@ -31,6 +32,7 @@ def make_tracer(source_dirs=None, phase="call", test_item=None, covers_lines=Non
     return tracer, ctx, store
 
 
+@covers(LineTracer.start)
 def test_start_sets_sys_trace():
     ctx = ProfilerContext()
     store = SessionStore()
@@ -49,6 +51,7 @@ def test_start_sets_sys_trace():
             sys.settrace(original)
 
 
+@covers(LineTracer.stop)
 def test_stop_restores_previous_trace():
     ctx = ProfilerContext()
     store = SessionStore()
@@ -59,6 +62,7 @@ def test_stop_restores_previous_trace():
     assert sys.gettrace() is original
 
 
+@covers(LineTracer._trace)
 def test_trace_returns_local_closure_on_call_event():
     tracer, ctx, store = make_tracer()
     frame = make_frame(THIS_FILE, 1)
@@ -68,6 +72,7 @@ def test_trace_returns_local_closure_on_call_event():
     assert result is not tracer._trace
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_accumulates_deliberate_execution():
     frame = make_frame(THIS_FILE, 42)
     source_dirs = [str(Path(__file__).resolve().parent)]
@@ -90,6 +95,7 @@ def test_trace_accumulates_deliberate_execution():
     assert ld.incidental_executions == 0
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_accumulates_incidental_execution():
     frame = make_frame(THIS_FILE, 42)
     source_dirs = [str(Path(__file__).resolve().parent)]
@@ -112,6 +118,7 @@ def test_trace_accumulates_incidental_execution():
     assert ld.deliberate_executions == 0
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_skips_during_setup_phase():
     tracer, ctx, store = make_tracer(phase="setup")
     frame = make_frame(THIS_FILE, 10)
@@ -120,6 +127,7 @@ def test_trace_skips_during_setup_phase():
     assert store._data == {}
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_skips_during_teardown_phase():
     tracer, ctx, store = make_tracer(phase="teardown")
     frame = make_frame(THIS_FILE, 10)
@@ -128,6 +136,7 @@ def test_trace_skips_during_teardown_phase():
     assert store._data == {}
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_skips_when_no_test_item():
     ctx = ProfilerContext(
         source_dirs=[str(Path(__file__).resolve().parent)],
@@ -142,6 +151,7 @@ def test_trace_skips_when_no_test_item():
     assert store._data == {}
 
 
+@covers(LineTracer._in_scope)
 def test_trace_skips_file_outside_source_dirs():
     ctx = ProfilerContext(
         source_dirs=["/other/path"],
@@ -159,6 +169,7 @@ def test_trace_skips_file_outside_source_dirs():
     assert store._data == {}
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_catches_exception_and_warns():
     class BrokenStore:
         def get_or_create(self, key):
@@ -184,6 +195,7 @@ def test_trace_catches_exception_and_warns():
     assert "coverage-stats: tracer error" in str(caught[0].message)
 
 
+@covers(LineTracer._trace)
 def test_trace_forwards_call_to_prev_global_tracer():
     """The previous global tracer must be called with the 'call' event."""
     ctx = ProfilerContext(
@@ -206,6 +218,7 @@ def test_trace_forwards_call_to_prev_global_tracer():
     assert global_called == ["call"]
 
 
+@covers(LineTracer._make_local_trace)
 def test_trace_uses_local_tracer_returned_by_prev_global_tracer():
     """If the previous global tracer returns a local tracer, that local must be
     called on subsequent line events — not the global tracer itself."""
@@ -245,6 +258,7 @@ def test_trace_uses_local_tracer_returned_by_prev_global_tracer():
 # ---------------------------------------------------------------------------
 
 
+@covers(_flush_pre_test_lines)
 def test_flush_pre_test_lines_sets_both_incidental_and_deliberate():
     """Pre-test lines not yet in the store should be marked as both incidental
     and deliberate: importing a module to run tests is itself a deliberate act."""
@@ -257,6 +271,7 @@ def test_flush_pre_test_lines_sets_both_incidental_and_deliberate():
     assert ld.deliberate_executions == 1
 
 
+@covers(_flush_pre_test_lines)
 def test_flush_pre_test_lines_does_not_overwrite_existing_store_entry():
     """If a line already has call-phase data in the store, the flush must not
     clobber it."""
@@ -271,6 +286,7 @@ def test_flush_pre_test_lines_does_not_overwrite_existing_store_entry():
     assert store._data[("src/foo.py", 2)].incidental_executions == 5
 
 
+@covers(_flush_pre_test_lines)
 def test_flush_pre_test_lines_clears_pre_test_set():
     ctx = ProfilerContext(source_dirs=[])
     ctx.pre_test_lines = {("src/foo.py", 1), ("src/foo.py", 2)}

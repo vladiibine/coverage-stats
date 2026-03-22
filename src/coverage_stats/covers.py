@@ -127,5 +127,8 @@ def _get_callable_lines(target: _InspectTarget, ref: object, item: pytest.Functi
 def _get_class_lines(target: type[object], ref: object, item: pytest.Function) -> set[tuple[str, int]]:
     lines = _get_callable_lines(target, ref, item)
     for _name, method in inspect.getmembers(target, predicate=inspect.isfunction):
-        lines = lines | _get_callable_lines(method, ref, item)
+        try:
+            lines = lines | _get_callable_lines(method, ref, item)
+        except OSError:
+            pass  # skip generated methods (e.g. dataclass __eq__) with no source
     return lines

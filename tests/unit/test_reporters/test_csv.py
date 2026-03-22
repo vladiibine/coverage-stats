@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 from types import SimpleNamespace
 
+from coverage_stats import covers
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.csv_reporter import write_csv
 from coverage_stats.reporters.report_data import build_report
@@ -18,6 +19,7 @@ def read_csv_rows(path: Path) -> list[list[str]]:
         return list(csv.reader(f))
 
 
+@covers(write_csv)
 def test_empty_store_writes_header_only(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
@@ -30,6 +32,7 @@ def test_empty_store_writes_header_only(tmp_path):
     assert rows[0] == ["file", "lineno", "incidental_executions", "deliberate_executions", "incidental_asserts", "deliberate_asserts", "incidental_tests", "deliberate_tests", "partial"]
 
 
+@covers(write_csv)
 def test_correct_column_order(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -51,6 +54,7 @@ def test_correct_column_order(tmp_path):
     assert rows[1] == ["src/foo.py", "5", "1", "2", "3", "4", "0", "0", "False"]
 
 
+@covers(write_csv)
 def test_rows_sorted_by_file_then_lineno(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -77,6 +81,7 @@ def test_rows_sorted_by_file_then_lineno(tmp_path):
     assert linenos == [2, 10, 1]
 
 
+@covers(write_csv)
 def test_path_outside_rootdir_fallback(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -95,6 +100,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
     assert rows[1][0] == expected_file_key
 
 
+@covers(write_csv)
 def test_partial_column_false_for_non_branching_line(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -111,6 +117,7 @@ def test_partial_column_false_for_non_branching_line(tmp_path):
     assert rows[1][-1] == "False"
 
 
+@covers(write_csv)
 def test_partial_column_true_for_partial_branch(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -129,6 +136,7 @@ def test_partial_column_true_for_partial_branch(tmp_path):
     assert line1[-1] == "True"
 
 
+@covers(write_csv)
 def test_output_dir_created_if_missing(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)

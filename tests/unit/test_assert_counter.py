@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import types
 
+from coverage_stats import covers
 from coverage_stats.profiler import ProfilerContext
 from coverage_stats.store import SessionStore
 
@@ -13,30 +14,35 @@ def make_item(covers_lines=frozenset()):
 # --- record_assertion tests ---
 
 
+@covers(ProfilerContext.record_assertion)
 def test_record_assertion_increments_during_call_phase():
     ctx = ProfilerContext(current_phase="call", current_test_item=make_item())
     ctx.record_assertion()
     assert ctx.current_assert_count == 1
 
 
+@covers(ProfilerContext.record_assertion)
 def test_record_assertion_does_not_increment_during_setup_phase():
     ctx = ProfilerContext(current_phase="setup", current_test_item=make_item())
     ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
+@covers(ProfilerContext.record_assertion)
 def test_record_assertion_does_not_increment_during_teardown_phase():
     ctx = ProfilerContext(current_phase="teardown", current_test_item=make_item())
     ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
+@covers(ProfilerContext.record_assertion)
 def test_record_assertion_does_not_increment_when_no_test_item():
     ctx = ProfilerContext(current_phase="call", current_test_item=None)
     ctx.record_assertion()
     assert ctx.current_assert_count == 0
 
 
+@covers(ProfilerContext.record_assertion)
 def test_record_assertion_accumulates_multiple_calls():
     ctx = ProfilerContext(current_phase="call", current_test_item=make_item())
     ctx.record_assertion()
@@ -47,6 +53,7 @@ def test_record_assertion_accumulates_multiple_calls():
 # --- distribute_asserts tests ---
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_no_asserts_still_records_test_counts():
     """Zero asserts: assert counts stay zero but test counts are still recorded."""
     store = SessionStore()
@@ -68,6 +75,7 @@ def test_distribute_asserts_no_asserts_still_records_test_counts():
     assert ctx.current_test_lines == set()
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_two_asserts_three_incidental_lines():
     """2 asserts, 3 incidental lines: each line gets incidental_asserts += 2."""
     store = SessionStore()
@@ -91,6 +99,7 @@ def test_distribute_asserts_two_asserts_three_incidental_lines():
     assert ctx.current_test_lines == set()
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_mixed_deliberate_and_incidental():
     """1 assert, (f,1) deliberate, (f,2) incidental: split correctly."""
     store = SessionStore()
@@ -115,6 +124,7 @@ def test_distribute_asserts_mixed_deliberate_and_incidental():
     assert ctx.current_test_lines == set()
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_empty_lines_non_zero_count():
     """count=3 but no executed lines: store unchanged, count reset."""
     store = SessionStore()
@@ -149,6 +159,7 @@ def test_distribute_asserts_new_test_resets_state():
     assert ctx.current_test_lines == set()
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_records_incidental_test_count():
     """Each line in current_test_lines gets incidental_tests += 1 when not in covers_lines."""
     store = SessionStore()
@@ -167,6 +178,7 @@ def test_distribute_asserts_records_incidental_test_count():
     assert store.get_or_create((f, 1)).deliberate_tests == 0
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_records_deliberate_test_count():
     """Lines in covers_lines get deliberate_tests += 1."""
     store = SessionStore()
@@ -188,6 +200,7 @@ def test_distribute_asserts_records_deliberate_test_count():
     assert store.get_or_create(incidental_key).deliberate_tests == 0
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_accumulates_test_counts_across_calls():
     """Calling distribute_asserts twice (two tests) accumulates test counts."""
     store = SessionStore()
@@ -206,6 +219,7 @@ def test_distribute_asserts_accumulates_test_counts_across_calls():
     assert store.get_or_create(key).incidental_tests == 3
 
 
+@covers(ProfilerContext.distribute_asserts)
 def test_distribute_asserts_resets_count_and_lines_after_distribution():
     """After distribute_asserts, both count and lines are cleared."""
     store = SessionStore()
