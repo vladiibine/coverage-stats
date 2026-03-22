@@ -105,6 +105,25 @@ Individual sessions:
 | `mypy`  | mypy strict type-checking |
 | `lint`  | ruff |
 
+### Pre-commit hook
+
+A pre-commit hook runs the full `nox` suite before every commit and blocks it if any check fails. To enable it, first install nox and pre-commit (once):
+
+```bash
+uv tool install nox
+uv tool install pre-commit
+```
+
+Then install the hook into your local clone (once):
+
+```bash
+pre-commit install
+```
+
+From that point on, every `git commit` automatically runs all nox sessions. To skip the hook for a single commit (e.g. a work-in-progress), use `git commit --no-verify`.
+
+> **Tip:** The full matrix (Python 3.9–3.14 + mypy + lint) can be slow locally. To run just one Python version instead, edit the `entry` line in `.pre-commit-config.yaml` to `nox -s "tests-3.12" mypy lint`.
+
 ### Type checking
 
 Run mypy directly (without nox):
