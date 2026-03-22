@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -9,6 +10,18 @@ import pytest
 if TYPE_CHECKING:
     from coverage_stats.profiler import LineTracer, ProfilerContext
     from coverage_stats.store import SessionStore
+
+_DEFAULT_STORE = "coverage_stats.store.SessionStore"
+
+
+def _load_store_class(dotted_path: str) -> type[SessionStore]:
+    module_path, sep, class_name = dotted_path.rpartition(".")
+    if not sep:
+        raise ValueError(
+            f"Invalid store class path {dotted_path!r}: expected 'module.path.ClassName'"
+        )
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)  # type: ignore[no-any-return]
 
 
 class _XdistWorkerNode(Protocol):
@@ -194,11 +207,10 @@ class CoverageStatsPlugin:
         if not self._enabled:
             return
         import json
-        from coverage_stats.store import SessionStore
         raw = getattr(node, "workeroutput", {}).get("coverage_stats_data")
         if raw:
-            worker_store = SessionStore.from_dict(json.loads(raw))
             assert self._store is not None
+            worker_store = type(self._store).from_dict(json.loads(raw))
             self._store.merge(worker_store)
 
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
@@ -314,6 +326,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Comma-separated list of reporter classes (module.path.ClassName)",
         default="",
     )
+    parser.addoption(
+        "--coverage-stats-store",
+        type=str,
+        default=None,
+        help=f"SessionStore class to use (module.path.ClassName, default: {_DEFAULT_STORE})",
+    )
+    parser.addini(
+        "coverage_stats_store",
+        help=f"SessionStore class to use (module.path.ClassName, default: {_DEFAULT_STORE})",
+        default=_DEFAULT_STORE,
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -331,9 +354,11 @@ def pytest_configure(config: pytest.Config) -> None:
     if isinstance(inicache, dict):
         inicache["enable_assertion_pass_hook"] = True
 
+    store_path = config.getoption("--coverage-stats-store") or config.getini("coverage_stats_store") or _DEFAULT_STORE
+    store_cls = _load_store_class(store_path)
+
     if _is_xdist_controller(config):
-        from coverage_stats.store import SessionStore
-        store = SessionStore()
+        store = store_cls()
         config._coverage_stats_ctx = None  # type: ignore[attr-defined]
         plugin._store = store
         plugin._tracer = None
@@ -342,7 +367,6 @@ def pytest_configure(config: pytest.Config) -> None:
 
     # worker or single-process: full setup
     from coverage_stats.profiler import LineTracer, ProfilerContext
-    from coverage_stats.store import SessionStore
 
     raw_source = config.getini("coverage_stats_source")
     rootdir = Path(str(config.rootpath))
@@ -356,7 +380,7 @@ def pytest_configure(config: pytest.Config) -> None:
     source_dirs = [str(p) for p in candidate_dirs if p.is_dir()]
 
     ctx = ProfilerContext(source_dirs=source_dirs)
-    store = SessionStore()
+    store = store_cls()
     tracer = LineTracer(ctx, store)
 
     config._coverage_stats_ctx = ctx  # type: ignore[attr-defined]
