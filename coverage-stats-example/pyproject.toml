@@ -3,20 +3,35 @@ name = "coverage-stats-example"
 version = "0.1.0"
 requires-python = ">=3.9"
 
+[tool.uv.sources]
+coverage-stats = { path = "..", editable = true }
+
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "coverage",
+    "coverage[toml]",
     "pytest-cov",
+    "pytest-xdist",
+    "coverage-stats",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-# coverage_stats_source defaults to "src" — no need to set it explicitly
+addopts = [
+    "-n", "auto",
+    "--cov=src",
+    "--cov-report=html:html-cov",
+    "--coverage-stats",
+    "--coverage-stats-format", "html",
+    "--coverage-stats-output", "coverage-stats-report",
+]
 
 [tool.coverage.run]
 source = ["src"]
+# required for coverage.py to work correctly with xdist worker subprocesses
+concurrency = ["multiprocessing", "thread"]
+parallel = true
 
 [tool.coverage.report]
 precision = 6
