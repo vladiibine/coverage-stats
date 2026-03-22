@@ -11,10 +11,46 @@ from coverage_stats.reporters.html import (
     render_index_page,
     render_file_page,
     render_file_stats,
-    _FileEntry,
     _render_tree_rows,
 )
-from coverage_stats.reporters.report_data import build_report
+from coverage_stats.reporters.report_data import (
+    FileSummary,
+    build_folder_tree,
+    build_report,
+)
+
+
+def _make_file_summary(
+    rel_path: str,
+    total_stmts: int = 0,
+    total_covered: int = 0,
+    arcs_total: int = 0,
+    arcs_covered: int = 0,
+    arcs_deliberate: int = 0,
+    arcs_incidental: int = 0,
+    deliberate_covered: int = 0,
+    incidental_covered: int = 0,
+) -> FileSummary:
+    total_denom = total_stmts + arcs_total
+    total_pct = (total_covered + arcs_covered) / total_denom * 100.0 if total_denom else 0.0
+    deliberate_pct = (deliberate_covered + arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
+    incidental_pct = (incidental_covered + arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+    return FileSummary(
+        rel_path=rel_path,
+        abs_path=rel_path,
+        total_stmts=total_stmts,
+        total_covered=total_covered,
+        deliberate_covered=deliberate_covered,
+        incidental_covered=incidental_covered,
+        arcs_total=arcs_total,
+        arcs_covered=arcs_covered,
+        arcs_deliberate=arcs_deliberate,
+        arcs_incidental=arcs_incidental,
+        total_pct=total_pct,
+        deliberate_pct=deliberate_pct,
+        incidental_pct=incidental_pct,
+        partial_count=0,
+    )
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
@@ -390,11 +426,11 @@ def test_render_line_escapes_html():
 
 
 def test_build_file_tree_groups_by_folder():
-    entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 0, 0, 0, 0, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 0, 0, 0, 0, 2, 4),
+    summaries = [
+        _make_file_summary("src/a.py", total_stmts=10, total_covered=7, deliberate_covered=5, incidental_covered=3),
+        _make_file_summary("src/sub/b.py", total_stmts=8, total_covered=5, deliberate_covered=2, incidental_covered=4),
     ]
-    tree = HtmlReporter._build_file_tree(entries)
+    tree = build_folder_tree(summaries)
     assert "src" in tree.subfolders
     src_node = tree.subfolders["src"]
     assert len(src_node.files) == 1
@@ -404,11 +440,11 @@ def test_build_file_tree_groups_by_folder():
 
 
 def test_folder_node_aggregates_stats():
-    entries = [
-        _FileEntry("src/a.py", "src__a.py.html", 10, 7, 4, 3, 2, 1, 5, 3),
-        _FileEntry("src/sub/b.py", "src__sub__b.py.html", 8, 5, 2, 1, 1, 0, 2, 4),
+    summaries = [
+        _make_file_summary("src/a.py", total_stmts=10, total_covered=7, arcs_total=4, arcs_covered=3, arcs_deliberate=2, arcs_incidental=1, deliberate_covered=5, incidental_covered=3),
+        _make_file_summary("src/sub/b.py", total_stmts=8, total_covered=5, arcs_total=2, arcs_covered=1, arcs_deliberate=1, arcs_incidental=0, deliberate_covered=2, incidental_covered=4),
     ]
-    tree = HtmlReporter._build_file_tree(entries)
+    tree = build_folder_tree(summaries)
     src = tree.subfolders["src"]
     assert src.agg_total_stmts() == 18
     assert src.agg_total_covered() == 12
@@ -421,10 +457,8 @@ def test_folder_node_aggregates_stats():
 
 
 def test_render_tree_rows_contains_link_and_folder():
-    entries = [
-        _FileEntry("src/foo.py", "src__foo.py.html", 3, 2, 0, 0, 0, 0, 1, 2),
-    ]
-    tree = HtmlReporter._build_file_tree(entries)
+    summaries = [_make_file_summary("src/foo.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=2)]
+    tree = build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert 'href="src__foo.py.html"' in html
     assert "foo.py" in html
@@ -432,10 +466,8 @@ def test_render_tree_rows_contains_link_and_folder():
 
 
 def test_render_tree_rows_pct_calculation():
-    entries = [
-        _FileEntry("src/x.py", "src__x.py.html", 3, 2, 0, 0, 0, 0, 1, 0),
-    ]
-    tree = HtmlReporter._build_file_tree(entries)
+    summaries = [_make_file_summary("src/x.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=0)]
+    tree = build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "33.3%" in html  # 1/3 deliberate on file row
     assert "66.7%" in html  # 2/3 total on file row
@@ -470,20 +502,20 @@ def test_render_file_stats_shows_total_pct():
 
 
 def test_folder_node_agg_total_covered():
-    entries = [
-        _FileEntry("a/x.py", "a__x.py.html", 10, 8, 0, 0, 0, 0, 6, 3),
-        _FileEntry("a/y.py", "a__y.py.html", 5, 3, 0, 0, 0, 0, 1, 2),
+    summaries = [
+        _make_file_summary("a/x.py", total_stmts=10, total_covered=8, deliberate_covered=6, incidental_covered=3),
+        _make_file_summary("a/y.py", total_stmts=5, total_covered=3, deliberate_covered=1, incidental_covered=2),
     ]
-    tree = HtmlReporter._build_file_tree(entries)
+    tree = build_folder_tree(summaries)
     node = tree.subfolders["a"]
     assert node.agg_total_covered() == 11  # 8 + 3
 
 
 def test_render_tree_rows_total_pct_column():
-    entries = [
-        _FileEntry("src/z.py", "src__z.py.html", 4, 3, 0, 0, 0, 0, 2, 1),
+    summaries = [
+        _make_file_summary("src/z.py", total_stmts=4, total_covered=3, deliberate_covered=2, incidental_covered=1),
     ]
-    tree = HtmlReporter._build_file_tree(entries)
+    tree = build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "75.0%" in html   # 3/4 total on file row
     assert "50.0%" in html   # 2/4 deliberate on file row
@@ -520,20 +552,21 @@ def test_missed_ranges_mixed():
 
 
 # ---------------------------------------------------------------------------
-# HtmlReporter._build_file_tree as static method
+# build_folder_tree from report_data
 # ---------------------------------------------------------------------------
 
 
-def test_build_file_tree_callable_on_class():
-    entries = [_FileEntry("src/a.py", "src__a.py.html", 1, 1, 0, 0, 0, 0, 1, 0)]
-    tree = HtmlReporter._build_file_tree(entries)
+def test_build_folder_tree_groups_single_file():
+    summaries = [_make_file_summary("src/a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
+    tree = build_folder_tree(summaries)
     assert "src" in tree.subfolders
 
 
-def test_build_file_tree_callable_on_instance():
-    entries = [_FileEntry("src/a.py", "src__a.py.html", 1, 1, 0, 0, 0, 0, 1, 0)]
-    tree = HtmlReporter()._build_file_tree(entries)
-    assert "src" in tree.subfolders
+def test_build_folder_tree_file_at_root_level():
+    summaries = [_make_file_summary("a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
+    tree = build_folder_tree(summaries)
+    assert len(tree.files) == 1
+    assert tree.files[0].rel_path == "a.py"
 
 
 # ---------------------------------------------------------------------------

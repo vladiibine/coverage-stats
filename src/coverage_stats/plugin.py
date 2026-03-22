@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 _DEFAULT_STORE = "coverage_stats.store.SessionStore"
 _DEFAULT_PROFILER_CONTEXT = "coverage_stats.profiler.ProfilerContext"
 _DEFAULT_LINE_TRACER = "coverage_stats.profiler.LineTracer"
+_DEFAULT_REPORT_BUILDER = "coverage_stats.reporters.report_data.DefaultReportBuilder"
 
 
 def _load_store_class(dotted_path: str) -> type[SessionStore]:
@@ -41,6 +42,16 @@ def _load_line_tracer_class(dotted_path: str) -> type[LineTracer]:
     if not sep:
         raise ValueError(
             f"Invalid line tracer class path {dotted_path!r}: expected 'module.path.ClassName'"
+        )
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)  # type: ignore[no-any-return]
+
+
+def _load_report_builder_class(dotted_path: str) -> type:
+    module_path, sep, class_name = dotted_path.rpartition(".")
+    if not sep:
+        raise ValueError(
+            f"Invalid report builder class path {dotted_path!r}: expected 'module.path.ClassName'"
         )
     module = importlib.import_module(module_path)
     return getattr(module, class_name)  # type: ignore[no-any-return]
@@ -157,6 +168,7 @@ class CoverageStatsPlugin:
         self._store: SessionStore | None = None
         self._tracer: LineTracer | None = None
         self._orig_read_pyc: object = None  # stored during collection to force rewrite
+        self._report_builder_cls: type = object  # replaced in pytest_configure
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         """Start the line tracer now that all plugins have finished configuring.
@@ -266,7 +278,6 @@ class CoverageStatsPlugin:
         reporter_str = config.getoption("--coverage-stats-reporter") or config.getini("coverage_stats_reporters")
         reporter_paths = [r.strip() for r in (reporter_str or "").split(",") if r.strip()]
 
-        from coverage_stats.reporters.report_data import build_report
         from coverage_stats.reporters import get_reporter, load_reporter_class, _instantiate_reporter
         known_kwargs: dict[str, object] = {"precision": precision}
 
@@ -284,7 +295,7 @@ class CoverageStatsPlugin:
             except Exception as exc:
                 warnings.warn(f"coverage-stats: failed to load reporter {path!r}: {exc}")
 
-        report = build_report(self._store, config)
+        report = self._report_builder_cls().build(self._store, config)
         for name, reporter in reporters:
             try:
                 reporter.write(report, output_dir)
@@ -381,6 +392,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=f"LineTracer class to use (module.path.ClassName, default: {_DEFAULT_LINE_TRACER})",
         default=_DEFAULT_LINE_TRACER,
     )
+    parser.addoption(
+        "--coverage-stats-report-builder",
+        type=str,
+        default=None,
+        help=f"ReportBuilder class to use (module.path.ClassName, default: {_DEFAULT_REPORT_BUILDER})",
+    )
+    parser.addini(
+        "coverage_stats_report_builder",
+        help=f"ReportBuilder class to use (module.path.ClassName, default: {_DEFAULT_REPORT_BUILDER})",
+        default=_DEFAULT_REPORT_BUILDER,
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -404,12 +426,15 @@ def pytest_configure(config: pytest.Config) -> None:
     ctx_cls = _load_profiler_context_class(ctx_path)
     tracer_path = config.getoption("--coverage-stats-line-tracer") or config.getini("coverage_stats_line_tracer") or _DEFAULT_LINE_TRACER
     tracer_cls = _load_line_tracer_class(tracer_path)
+    builder_path = config.getoption("--coverage-stats-report-builder") or config.getini("coverage_stats_report_builder") or _DEFAULT_REPORT_BUILDER
+    report_builder_cls = _load_report_builder_class(builder_path)
 
     if _is_xdist_controller(config):
         store = store_cls()
         config._coverage_stats_ctx = None  # type: ignore[attr-defined]
         plugin._store = store
         plugin._tracer = None
+        plugin._report_builder_cls = report_builder_cls
         config.pluginmanager.register(plugin, "coverage-stats-plugin")
         return
 
@@ -432,6 +457,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config._coverage_stats_ctx = ctx  # type: ignore[attr-defined]
     plugin._store = store
     plugin._tracer = tracer
+    plugin._report_builder_cls = report_builder_cls
 
     # Bypass pytest's assertion-rewrite .pyc cache during test collection.
     # pytest caches rewritten bytecode without including `enable_assertion_pass_hook`

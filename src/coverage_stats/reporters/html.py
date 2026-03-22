@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import html as _html
-from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
 from coverage_stats.store import LineData
 from coverage_stats.reporters.report_data import (
     CoverageReport,
     FileReport,
+    FolderNode,
 )
 
 _CSS = """
@@ -137,66 +137,6 @@ function hideDescendants(id) {
 """
 
 
-@dataclass
-class _FileEntry:
-    rel_path: str
-    file_html_name: str
-    total_stmts: int
-    total_covered: int
-    arcs_total: int
-    arcs_covered: int
-    arcs_deliberate: int
-    arcs_incidental: int
-    deliberate_covered: int
-    incidental_covered: int
-
-
-@dataclass
-class _FolderNode:
-    path: str  # e.g. "src/payments/billing", "" for the virtual root
-    subfolders: dict[str, "_FolderNode"] = dc_field(default_factory=dict)
-    files: list[_FileEntry] = dc_field(default_factory=list)
-
-    def agg_total_stmts(self) -> int:
-        return sum(f.total_stmts for f in self.files) + sum(
-            s.agg_total_stmts() for s in self.subfolders.values()
-        )
-
-    def agg_total_covered(self) -> int:
-        return sum(f.total_covered for f in self.files) + sum(
-            s.agg_total_covered() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_total(self) -> int:
-        return sum(f.arcs_total for f in self.files) + sum(
-            s.agg_arcs_total() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_covered(self) -> int:
-        return sum(f.arcs_covered for f in self.files) + sum(
-            s.agg_arcs_covered() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_deliberate(self) -> int:
-        return sum(f.arcs_deliberate for f in self.files) + sum(
-            s.agg_arcs_deliberate() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_incidental(self) -> int:
-        return sum(f.arcs_incidental for f in self.files) + sum(
-            s.agg_arcs_incidental() for s in self.subfolders.values()
-        )
-
-    def agg_deliberate(self) -> int:
-        return sum(f.deliberate_covered for f in self.files) + sum(
-            s.agg_deliberate() for s in self.subfolders.values()
-        )
-
-    def agg_incidental(self) -> int:
-        return sum(f.incidental_covered for f in self.files) + sum(
-            s.agg_incidental() for s in self.subfolders.values()
-        )
-
 
 class HtmlReporter:
     """The HTML reporter. Made for extensibility.
@@ -215,26 +155,11 @@ class HtmlReporter:
     def write(self, report: CoverageReport, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        file_entries: list[_FileEntry] = []
         for fr in report.files:
-            s = fr.summary
-            file_html_name = s.rel_path.replace("/", "__") + ".html"
+            file_html_name = fr.summary.rel_path.replace("/", "__") + ".html"
             self._write_file_page(fr, output_dir / file_html_name)
-            file_entries.append(_FileEntry(
-                rel_path=s.rel_path,
-                file_html_name=file_html_name,
-                total_stmts=s.total_stmts,
-                total_covered=s.total_covered,
-                arcs_total=s.arcs_total,
-                arcs_covered=s.arcs_covered,
-                arcs_deliberate=s.arcs_deliberate,
-                arcs_incidental=s.arcs_incidental,
-                deliberate_covered=s.deliberate_covered,
-                incidental_covered=s.incidental_covered,
-            ))
 
-        tree = self._build_file_tree(file_entries)
-        rows_html = "".join(self._render_tree_rows(tree, depth=0, parent_id=""))
+        rows_html = "".join(self._render_tree_rows(report.root, depth=0, parent_id=""))
         (output_dir / "index.html").write_text(
             self.render_index_page(rows_html), encoding="utf-8"
         )
@@ -253,20 +178,6 @@ class HtmlReporter:
                 start = end = n
         ranges.append(str(start) if start == end else f"{start}-{end}")
         return ", ".join(ranges)
-
-    @staticmethod
-    def _build_file_tree(entries: list[_FileEntry]) -> _FolderNode:
-        root = _FolderNode(path="")
-        for entry in entries:
-            parts = entry.rel_path.split("/")
-            node = root
-            for part in parts[:-1]:
-                if part not in node.subfolders:
-                    parent_path = f"{node.path}/{part}" if node.path else part
-                    node.subfolders[part] = _FolderNode(path=parent_path)
-                node = node.subfolders[part]
-            node.files.append(entry)
-        return root
 
     def _write_file_page(self, file_report: FileReport, out_path: Path) -> None:
         s = file_report.summary
@@ -295,7 +206,7 @@ class HtmlReporter:
             self.render_file_page(s.rel_path, stats_html, "".join(rows)), encoding="utf-8"
         )
 
-    def _render_tree_rows(self, node: _FolderNode, depth: int, parent_id: str) -> list[str]:
+    def _render_tree_rows(self, node: FolderNode, depth: int, parent_id: str) -> list[str]:
         """DFS traversal: emit a folder row then its children (subfolders, then files)."""
         rows: list[str] = []
         parent_attr = f' data-parent="{parent_id}"' if parent_id else ""
@@ -333,6 +244,7 @@ class HtmlReporter:
 
         for entry in sorted(node.files, key=lambda f: f.rel_path):
             filename = entry.rel_path.split("/")[-1]
+            file_html_name = entry.rel_path.replace("/", "__") + ".html"
             total = entry.total_stmts
             total_denom = total + entry.arcs_total
             total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
@@ -341,7 +253,7 @@ class HtmlReporter:
             rows.append(
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
-                f'<a href="{_html.escape(entry.file_html_name)}">{_html.escape(filename)}</a></td>'
+                f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
                 f'<td>{total}</td>'
                 f'<td>{total_pct:{fmt}}%</td>'
                 f'<td>{delib_pct:{fmt}}%</td>'
@@ -510,5 +422,5 @@ def render_file_page(rel_path: str, stats_html: str, lines_html: str) -> str:
     return HtmlReporter().render_file_page(rel_path, stats_html, lines_html)
 
 
-def _render_tree_rows(node: _FolderNode, depth: int, parent_id: str, precision: int = 1) -> list[str]:
+def _render_tree_rows(node: FolderNode, depth: int, parent_id: str, precision: int = 1) -> list[str]:
     return HtmlReporter(precision=precision)._render_tree_rows(node, depth, parent_id)

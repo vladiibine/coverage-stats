@@ -27,10 +27,12 @@ class _NoopTracer:
 
 
 def make_plugin(store: SessionStore) -> CoverageStatsPlugin:
+    from coverage_stats.reporters.report_data import DefaultReportBuilder
     plugin = CoverageStatsPlugin()
     plugin._enabled = True
     plugin._store = store
     plugin._tracer = _NoopTracer()
+    plugin._report_builder_cls = DefaultReportBuilder
     return plugin
 
 
