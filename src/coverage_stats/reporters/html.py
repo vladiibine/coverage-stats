@@ -104,6 +104,37 @@ a {
     color: #c62828;
     word-break: break-all;
 }
+/* Column toggle controls */
+.col-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85em;
+    color: #555;
+    align-items: center;
+}
+.col-controls .col-controls-label {
+    font-weight: bold;
+    color: #333;
+}
+.col-controls label {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+}
+.col-controls input[type="checkbox"] {
+    cursor: pointer;
+}
+/* Column show/hide transition — fade only; width snaps cleanly */
+th[data-col], td[data-col] {
+    transition: opacity 0.2s ease;
+}
+th[data-col].col-hidden, td[data-col].col-hidden {
+    display: none;
+}
 """
 
 
@@ -134,8 +165,88 @@ function hideDescendants(id) {
         if (row.id) hideDescendants(row.id);
     });
 }
+
+// Column visibility — persisted in localStorage
+(function() {
+    var KEY = 'cov-stats-hidden-cols';
+
+    function hiddenSet() {
+        try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
+        catch(e) { return new Set(); }
+    }
+
+    function saveHidden(set) {
+        try { localStorage.setItem(KEY, JSON.stringify(Array.from(set))); } catch(e) {}
+    }
+
+    function applyCol(col, visible, animate) {
+        var cells = document.querySelectorAll('[data-col="' + col + '"]');
+        if (visible) {
+            cells.forEach(function(el) {
+                el.style.opacity = '0';
+                el.classList.remove('col-hidden');
+                if (animate) {
+                    requestAnimationFrame(function() {
+                        requestAnimationFrame(function() { el.style.opacity = ''; });
+                    });
+                } else {
+                    el.style.opacity = '';
+                }
+            });
+        } else {
+            if (animate) {
+                cells.forEach(function(el) { el.style.opacity = '0'; });
+                setTimeout(function() {
+                    cells.forEach(function(el) {
+                        el.classList.add('col-hidden');
+                        el.style.opacity = '';
+                    });
+                }, 220);
+            } else {
+                cells.forEach(function(el) { el.classList.add('col-hidden'); });
+            }
+        }
+    }
+
+    window.toggleCol = function(col, visible) {
+        var hidden = hiddenSet();
+        if (visible) { hidden.delete(col); } else { hidden.add(col); }
+        saveHidden(hidden);
+        applyCol(col, visible, true);
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var hidden = hiddenSet();
+        hidden.forEach(function(col) { applyCol(col, false, false); });
+        document.querySelectorAll('.col-controls input[type="checkbox"]').forEach(function(cb) {
+            if (hidden.has(cb.value)) cb.checked = false;
+        });
+    });
+})();
 """
 
+
+_INDEX_COL_CONTROLS = (
+    '<div class="col-controls">'
+    '<span class="col-controls-label">Columns:</span>'
+    '<label><input type="checkbox" value="stmts" onchange="toggleCol(\'stmts\', this.checked)" checked> Stmts</label>'
+    '<label><input type="checkbox" value="total-pct" onchange="toggleCol(\'total-pct\', this.checked)" checked> Total %</label>'
+    '<label><input type="checkbox" value="delib-pct" onchange="toggleCol(\'delib-pct\', this.checked)" checked> Deliberate %</label>'
+    '<label><input type="checkbox" value="incid-pct" onchange="toggleCol(\'incid-pct\', this.checked)" checked> Incidental %</label>'
+    '</div>'
+)
+
+_FILE_COL_CONTROLS = (
+    '<div class="col-controls">'
+    '<span class="col-controls-label">Columns:</span>'
+    '<label><input type="checkbox" value="inc-exec" onchange="toggleCol(\'inc-exec\', this.checked)" checked> Inc. Executions</label>'
+    '<label><input type="checkbox" value="del-exec" onchange="toggleCol(\'del-exec\', this.checked)" checked> Del. Executions</label>'
+    '<label><input type="checkbox" value="inc-asserts" onchange="toggleCol(\'inc-asserts\', this.checked)" checked> Inc. Asserts</label>'
+    '<label><input type="checkbox" value="del-asserts" onchange="toggleCol(\'del-asserts\', this.checked)" checked> Del. Asserts</label>'
+    '<label><input type="checkbox" value="inc-tests" onchange="toggleCol(\'inc-tests\', this.checked)" checked> Inc. Tests</label>'
+    '<label><input type="checkbox" value="del-tests" onchange="toggleCol(\'del-tests\', this.checked)" checked> Del. Tests</label>'
+    '</div>'
+)
 
 
 class HtmlReporter:
@@ -148,6 +259,8 @@ class HtmlReporter:
     CSS = _CSS
     EXTRA_JS = ""
     EXTRA_CSS = ""
+    INDEX_COL_CONTROLS = _INDEX_COL_CONTROLS
+    FILE_COL_CONTROLS = _FILE_COL_CONTROLS
 
     def __init__(self, precision: int = 1) -> None:
         self.precision = precision
@@ -234,10 +347,10 @@ class HtmlReporter:
                 f' onclick="toggleFolder(\'{fid}\')">'
                 f'<td style="padding-left:{folder_indent}px">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
-                f'<td>{total}</td>'
-                f'<td>{total_pct:{fmt}}%</td>'
-                f'<td>{delib_pct:{fmt}}%</td>'
-                f'<td>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="stmts">{total}</td>'
+                f'<td data-col="total-pct">{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct">{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct">{incid_pct:{fmt}}%</td>'
                 f'</tr>'
             )
             rows.extend(self._render_tree_rows(sub, depth + 1, fid))
@@ -254,10 +367,10 @@ class HtmlReporter:
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
                 f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
-                f'<td>{total}</td>'
-                f'<td>{total_pct:{fmt}}%</td>'
-                f'<td>{delib_pct:{fmt}}%</td>'
-                f'<td>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="stmts">{total}</td>'
+                f'<td data-col="total-pct">{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct">{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct">{incid_pct:{fmt}}%</td>'
                 f'</tr>'
             )
 
@@ -327,12 +440,12 @@ class HtmlReporter:
             f'<td>{lineno}</td>'
             f'{branch_marker}'
             f'<td><pre style="margin:0">{escaped}</pre></td>'
-            f'<td>{inc_exec}</td>'
-            f'<td>{del_exec}</td>'
-            f'<td>{inc_asserts}</td>'
-            f'<td>{del_asserts}</td>'
-            f'<td>{inc_tests}</td>'
-            f'<td>{del_tests}</td>'
+            f'<td data-col="inc-exec">{inc_exec}</td>'
+            f'<td data-col="del-exec">{del_exec}</td>'
+            f'<td data-col="inc-asserts">{inc_asserts}</td>'
+            f'<td data-col="del-asserts">{del_asserts}</td>'
+            f'<td data-col="inc-tests">{inc_tests}</td>'
+            f'<td data-col="del-tests">{del_tests}</td>'
             f'</tr>'
         )
 
@@ -350,9 +463,14 @@ class HtmlReporter:
             f'</head>'
             f'<body>'
             f'<h1>Coverage Stats</h1>'
+            f'{self.INDEX_COL_CONTROLS}'
             f'<table>'
             f'<thead><tr>'
-            f'<th>File</th><th>Stmts</th><th>Total %</th><th>Deliberate %</th><th>Incidental %</th>'
+            f'<th>File</th>'
+            f'<th data-col="stmts">Stmts</th>'
+            f'<th data-col="total-pct">Total %</th>'
+            f'<th data-col="delib-pct">Deliberate %</th>'
+            f'<th data-col="incid-pct">Incidental %</th>'
             f'</tr></thead>'
             f'<tbody>{rows_html}</tbody>'
             f'</table>'
@@ -368,18 +486,25 @@ class HtmlReporter:
             f'<head>'
             f'<meta charset="utf-8">'
             f'<title>{escaped_path} — Coverage Stats</title>'
-            f'<style>{_CSS}</style>'
+            f'<style>{self.CSS}</style>'
+            f'<style>{self.EXTRA_CSS}</style>'
+            f'<script>{self.JS}</script>'
+            f'<script>{self.EXTRA_JS}</script>'
             f'</head>'
             f'<body>'
             f'<h1>{escaped_path}</h1>'
             f'<p><a href="index.html">Back to index</a></p>'
             f'{stats_html}'
+            f'{self.FILE_COL_CONTROLS}'
             f'<table>'
             f'<thead><tr>'
             f'<th>#</th><th></th><th>Source</th>'
-            f'<th>Incidental Executions</th><th>Deliberate Executions</th>'
-            f'<th>Incidental Asserts</th><th>Deliberate Asserts</th>'
-            f'<th>Incidental Tests</th><th>Deliberate Tests</th>'
+            f'<th data-col="inc-exec">Incidental Executions</th>'
+            f'<th data-col="del-exec">Deliberate Executions</th>'
+            f'<th data-col="inc-asserts">Incidental Asserts</th>'
+            f'<th data-col="del-asserts">Deliberate Asserts</th>'
+            f'<th data-col="inc-tests">Incidental Tests</th>'
+            f'<th data-col="del-tests">Deliberate Tests</th>'
             f'</tr></thead>'
             f'<tbody>{lines_html}</tbody>'
             f'</table>'

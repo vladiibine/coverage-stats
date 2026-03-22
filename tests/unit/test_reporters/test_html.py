@@ -286,8 +286,8 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     content = (out_dir / "index.html").read_text()
 
     # The index must show 10 (total executable stmts), not 2 (tracked stmts)
-    assert "<td>10</td>" in content
-    assert "<td>2</td>" not in content
+    assert 'data-col="stmts">10</td>' in content
+    assert 'data-col="stmts">2</td>' not in content
 
 
 @covers(write_html)
@@ -315,9 +315,9 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     content = (out_dir / "index.html").read_text()
 
     import re
-    # The file row renders as: <a href="...">__init__.py</a></td><td>{stmts}</td>
+    # The file row renders as: <a href="...">__init__.py</a></td><td data-col="stmts">{stmts}</td>
     # Match the stmt count cell that immediately follows the __init__.py link.
-    match = re.search(r'__init__\.py</a></td><td>(\d+)</td>', content)
+    match = re.search(r'__init__\.py</a></td><td data-col="stmts">(\d+)</td>', content)
     assert match is not None, "__init__.py row not found in index"
     assert match.group(1) == "0", f"expected 0 stmts for empty __init__.py, got {match.group(1)}"
 
@@ -343,7 +343,7 @@ def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
     content = (out_dir / "index.html").read_text()
 
     # Falls back to len(lines) = 2
-    assert "<td>2</td>" in content
+    assert 'data-col="stmts">2</td>' in content
 
 
 @covers(write_html)
