@@ -146,10 +146,75 @@ td.lvl-6 { background: #689f38; color: #fff; }
 td.lvl-7 { background: #388e3c; color: #fff; }
 td.lvl-8 { background: #2e7d32; color: #fff; }
 td.lvl-9 { background: #1b5e20; color: #fff; }
+/* Help button (? next to title) */
+.help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4em;
+    height: 1.4em;
+    border-radius: 50%;
+    border: 2px solid #1565c0;
+    background: #fff;
+    color: #1565c0;
+    font-size: 0.6em;
+    font-weight: bold;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-left: 0.4em;
+    padding: 0;
+    line-height: 1;
+}
+.help-btn:hover { background: #1565c0; color: #fff; }
+/* Help modal overlay + dialog */
+.help-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+.help-dialog {
+    background: #fff;
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+    font-family: sans-serif;
+}
+.help-dialog h2 { margin: 0 0 1rem; font-size: 1.1em; }
+.help-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    font-size: 1.1em;
+    cursor: pointer;
+    color: #666;
+    padding: 0.2em 0.4em;
+    line-height: 1;
+}
+.help-close:hover { color: #000; }
+.help-dl dt { font-weight: bold; margin-top: 0.75rem; color: #333; }
+.help-dl dd { margin: 0.15rem 0 0 0; color: #555; font-size: 0.9em; }
 """
 
 
 _JS = """
+function openHelp(id) {
+    document.getElementById(id).style.display = 'flex';
+}
+function closeHelp(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
 function toggleFolder(id) {
     var row = document.getElementById(id);
     var toggle = row.querySelector('.toggle');
@@ -315,22 +380,116 @@ class HtmlReporter:
         "del-tests": "Del. Tests",
     }
 
+    # Descriptions shown as tooltips on checkbox labels and in the help popup.
+    # Override in a subclass to customise the documentation.
+    INDEX_COL_DESCS: dict[str, str] = {
+        "stmts": (
+            "Total number of statements + branches tracked in the file or folder."
+        ),
+        "total-pct": (
+            "Percentage of statements + branches covered by any test (deliberate or "
+            "incidental). Files with nothing to cover (e.g. empty __init__.py) show 100%."
+        ),
+        "delib-pct": (
+            "Percentage of statements + branches covered by at least one test that "
+            "explicitly declares coverage via @covers(...)."
+        ),
+        "incid-pct": (
+            "Percentage of statements + branches covered incidentally \u2014 executed "
+            "by tests, but not via a @covers declaration."
+        ),
+        "delib-covered": (
+            "Raw count of statements + branches covered deliberately. "
+            "Colored using the same level as the Deliberate % column."
+        ),
+        "incid-covered": (
+            "Raw count of statements + branches covered incidentally. "
+            "Colored using the same level as the Incidental % column."
+        ),
+        "inc-asserts": (
+            "Total number of assert statements executed during incidental coverage "
+            "of this file or folder."
+        ),
+        "del-asserts": (
+            "Total number of assert statements executed during deliberate coverage "
+            "of this file or folder."
+        ),
+        "inc-assert-density": (
+            "Incidental assert count divided by total statements + branches. "
+            "A higher value means more assertions are observing each line incidentally."
+        ),
+        "del-assert-density": (
+            "Deliberate assert count divided by total statements + branches. "
+            "A higher value means more targeted assertions are exercising each line."
+        ),
+    }
+    FILE_COL_DESCS: dict[str, str] = {
+        "inc-exec": "Number of times the line was executed by incidental tests.",
+        "del-exec": (
+            "Number of times the line was executed by deliberate tests "
+            "(tests with a matching @covers declaration)."
+        ),
+        "inc-asserts": (
+            "Number of assert statements executed in all of the tests that ran "
+            "when the line was executed incidentally."
+        ),
+        "del-asserts": (
+            "Number of assert statements executed in all of the tests that ran "
+            "when the line was executed deliberately."
+        ),
+        "inc-tests": "Number of distinct incidental tests that executed this line.",
+        "del-tests": "Number of distinct deliberate tests that executed this line.",
+    }
+
     def __init__(self, precision: int = 1) -> None:
         self.precision = precision
 
-    def _col_controls_html(self, columns: dict[str, bool], labels: dict[str, str]) -> str:
+    def _col_controls_html(
+        self,
+        columns: dict[str, bool],
+        labels: dict[str, str],
+        descs: dict[str, str] | None = None,
+    ) -> str:
         """Render the column-visibility checkbox bar."""
         parts = ['<div class="col-controls"><span class="col-controls-label">Columns:</span>']
         for col, visible in columns.items():
             checked = " checked" if visible else ""
             label = _html.escape(labels.get(col, col))
+            title_attr = ""
+            if descs and col in descs:
+                title_attr = f' title="{_html.escape(descs[col])}"'
             parts.append(
-                f'<label><input type="checkbox" value="{col}"'
+                f'<label{title_attr}><input type="checkbox" value="{col}"'
                 f' onchange="toggleCol(\'{col}\', this.checked)"{checked}>'
                 f' {label}</label>'
             )
         parts.append("</div>")
         return "".join(parts)
+
+    def _help_popup_html(
+        self,
+        popup_id: str,
+        columns: dict[str, bool],
+        labels: dict[str, str],
+        descs: dict[str, str],
+    ) -> str:
+        """Render the hidden help modal listing all columns and their descriptions."""
+        items = []
+        for col in columns:
+            lbl = _html.escape(labels.get(col, col))
+            desc = _html.escape(descs.get(col, ""))
+            items.append(f"<dt>{lbl}</dt><dd>{desc}</dd>")
+        dl = "".join(items)
+        close_onclick = f"closeHelp('{popup_id}')"
+        overlay_onclick = f"closeHelp('{popup_id}')"
+        return (
+            f'<div id="{popup_id}" class="help-overlay" onclick="{overlay_onclick}">'
+            f'<div class="help-dialog" onclick="event.stopPropagation()">'
+            f'<button class="help-close" onclick="{close_onclick}">&#x2715;</button>'
+            f'<h2>Column Reference</h2>'
+            f'<dl class="help-dl">{dl}</dl>'
+            f'</div></div>'
+        )
 
     @staticmethod
     def _c(col: str, columns: dict[str, bool]) -> str:
@@ -581,7 +740,11 @@ class HtmlReporter:
     def render_index_page(self, rows_html: str) -> str:
         idx = self.INDEX_COLUMNS
         c = self._c
-        col_controls = self._col_controls_html(idx, self.INDEX_COL_LABELS)
+        col_controls = self._col_controls_html(idx, self.INDEX_COL_LABELS, self.INDEX_COL_DESCS)
+        help_popup = self._help_popup_html(
+            "index-help", idx, self.INDEX_COL_LABELS, self.INDEX_COL_DESCS
+        )
+        help_btn = '<button class="help-btn" onclick="openHelp(\'index-help\')">?</button>'
         return (
             f'<!DOCTYPE html>'
             f'<html lang="en">'
@@ -594,7 +757,8 @@ class HtmlReporter:
             f'<script>{self.EXTRA_JS}</script>'
             f'</head>'
             f'<body>'
-            f'<h1>Coverage Stats</h1>'
+            f'<h1>Coverage Stats {help_btn}</h1>'
+            f'{help_popup}'
             f'{col_controls}'
             f'<table>'
             f'<thead><tr>'
@@ -620,7 +784,11 @@ class HtmlReporter:
         escaped_path = _html.escape(rel_path)
         fc = self.FILE_COLUMNS
         c = self._c
-        col_controls = self._col_controls_html(fc, self.FILE_COL_LABELS)
+        col_controls = self._col_controls_html(fc, self.FILE_COL_LABELS, self.FILE_COL_DESCS)
+        help_popup = self._help_popup_html(
+            "file-help", fc, self.FILE_COL_LABELS, self.FILE_COL_DESCS
+        )
+        help_btn = '<button class="help-btn" onclick="openHelp(\'file-help\')">?</button>'
         return (
             f'<!DOCTYPE html>'
             f'<html lang="en">'
@@ -633,7 +801,8 @@ class HtmlReporter:
             f'<script>{self.EXTRA_JS}</script>'
             f'</head>'
             f'<body>'
-            f'<h1>{escaped_path}</h1>'
+            f'<h1>{escaped_path} {help_btn}</h1>'
+            f'{help_popup}'
             f'<p><a href="index.html">Back to index</a></p>'
             f'{stats_html}'
             f'{col_controls}'

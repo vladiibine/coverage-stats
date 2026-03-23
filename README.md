@@ -16,6 +16,8 @@ pip install coverage-stats
 
 ```bash
 pytest --coverage-stats
+
+# then open in the browser ./coverage-stats-report/index.html
 ```
 
 Mark which lines a test deliberately covers using the `covers` decorator:
@@ -43,6 +45,40 @@ pytest --coverage-stats --coverage-stats-format=html --coverage-stats-output=rep
 ```
 
 The report includes a folder-collapsible index with per-file summary metrics, and a per-file page showing line-level deliberate vs incidental execution counts and assert density.
+
+### Index page columns
+
+Each row represents one file or folder. Columns are toggleable via checkboxes above the table; the default visibility is noted below.
+
+| Column | Default | Description |
+|--------|---------|-------------|
+| Stmts | visible | Total number of statements + branches tracked in the file or folder. |
+| Total % | visible | Percentage of statements + branches covered by any test (deliberate or incidental). Files with nothing to cover (e.g. empty `__init__.py`) show 100%. |
+| Deliberate % | visible | Percentage of statements + branches covered by at least one test that explicitly declares coverage via `@covers(...)`. |
+| Incidental % | visible | Percentage of statements + branches covered incidentally — executed by tests, but not via a `@covers` declaration. |
+| Del. Covered | hidden | Raw count of statements + branches covered deliberately. Colored using the same level as the Deliberate % column. |
+| Inc. Covered | hidden | Raw count of statements + branches covered incidentally. Colored using the same level as the Incidental % column. |
+| Inc. Asserts | hidden | Total number of assert statements executed during incidental coverage of this file or folder. |
+| Del. Asserts | hidden | Total number of assert statements executed during deliberate coverage of this file or folder. |
+| Inc. Assert Density | hidden | Incidental assert count divided by total statements + branches. A higher value means more assertions are observing each line incidentally. |
+| Del. Assert Density | hidden | Deliberate assert count divided by total statements + branches. A higher value means more targeted assertions are exercising each line. |
+
+Percentage columns are colored on a 10-level red → green scale (0–9%, 10–19%, …, 90–100%). Assert count and density columns are colored relative to the maximum value in the current report (divided into up to 10 equal buckets).
+
+### File report columns
+
+Each row represents one source line. Columns are toggleable via checkboxes above the table.
+
+| Column | Default | Description                                                                                                      |
+|--------|---------|------------------------------------------------------------------------------------------------------------------|
+| Inc. Executions | visible | Number of times the line was executed by incidental tests.                                                       |
+| Del. Executions | visible | Number of times the line was executed by deliberate tests (tests with a matching `@covers` declaration).         |
+| Inc. Asserts | visible | Number of assert statements executed in all of the tests that ran when the line was executed incidentally.       |
+| Del. Asserts | visible | Number of assert statements executed in all of the tests that ran when the line was executed incidentally.        |
+| Inc. Tests | visible | Number of distinct incidental tests that executed this line.                                                     |
+| Del. Tests | visible | Number of distinct deliberate tests that executed this line.                                                     |
+
+Row background colors: green = covered deliberately, yellow = covered only incidentally, orange = partially covered (some branches missed), red = not covered at all.
 
 ### Scoping profiling to specific directories
 

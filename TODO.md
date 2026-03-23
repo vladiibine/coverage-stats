@@ -8,7 +8,9 @@ CORE
   * [v] assert_counter.py -> the assert incrementing logic there seems to belong more in the LineProfiler. Move it there if possible, or at least allow the user to parametrize it
   * [v] Test library via itself! See how well it’s intentionally covered
   * [v] add tests invoking the library together with coverage.py / xdist / both
-  * html and report_data duplicate calculations -> refactor!
+  * [v] html and report_data duplicate calculations -> refactor!
+  * [v] document the columns (in README, on the index page and on individual report pages)
+  * option to show all tests that ran on a certain line/file/folder
 
 REPORTING:
   * ordering or html columns
