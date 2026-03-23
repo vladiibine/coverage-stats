@@ -33,9 +33,9 @@ def _make_file_summary(
     incidental_covered: int = 0,
 ) -> FileSummary:
     total_denom = total_stmts + arcs_total
-    total_pct = (total_covered + arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-    deliberate_pct = (deliberate_covered + arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
-    incidental_pct = (incidental_covered + arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+    total_pct = (total_covered + arcs_covered) / total_denom * 100.0 if total_denom else 100.0
+    deliberate_pct = (deliberate_covered + arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
+    incidental_pct = (incidental_covered + arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
     return FileSummary(
         rel_path=rel_path,
         abs_path=rel_path,

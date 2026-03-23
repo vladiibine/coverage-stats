@@ -197,9 +197,9 @@ class DefaultReportBuilder:
             deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
 
             total_denom = total_stmts + branch_analysis.arcs_total
-            total_pct = (total_covered + branch_analysis.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-            deliberate_pct = (deliberate_covered + branch_analysis.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
-            incidental_pct = (incidental_covered + branch_analysis.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+            total_pct = (total_covered + branch_analysis.arcs_covered) / total_denom * 100.0 if total_denom else 100.0
+            deliberate_pct = (deliberate_covered + branch_analysis.arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
+            incidental_pct = (incidental_covered + branch_analysis.arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
 
             partial_count = len(branch_analysis.partial & executable)
 

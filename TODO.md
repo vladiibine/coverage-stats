@@ -8,12 +8,13 @@ CORE
   * [v] assert_counter.py -> the assert incrementing logic there seems to belong more in the LineProfiler. Move it there if possible, or at least allow the user to parametrize it
   * [v] Test library via itself! See how well it’s intentionally covered
   * [v] add tests invoking the library together with coverage.py / xdist / both
+  * html and report_data duplicate calculations -> refactor!
 
 REPORTING:
-  * coloring of stats (from red-ish to green-ish) 
   * ordering or html columns
   * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
+  * [v] coloring of stats (from red-ish to green-ish) 
   * [v] in the html index, add all stats (# statements, #/% deliberate, #/% incidental, # asserts, #asserts/#lines)
   * [v] in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * [v] json/csv reporting: do they also display partial lines? They should!

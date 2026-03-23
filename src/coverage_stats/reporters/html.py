@@ -135,6 +135,17 @@ th[data-col], td[data-col] {
 th[data-col].col-hidden, td[data-col].col-hidden {
     display: none;
 }
+/* Index table cell colour levels: red (0) → green (9) */
+td.lvl-0 { background: #c62828; color: #fff; }
+td.lvl-1 { background: #d84315; color: #fff; }
+td.lvl-2 { background: #e65100; color: #fff; }
+td.lvl-3 { background: #ef6c00; color: #212121; }
+td.lvl-4 { background: #f9a825; color: #212121; }
+td.lvl-5 { background: #9e9d24; color: #fff; }
+td.lvl-6 { background: #689f38; color: #fff; }
+td.lvl-7 { background: #388e3c; color: #fff; }
+td.lvl-8 { background: #2e7d32; color: #fff; }
+td.lvl-9 { background: #1b5e20; color: #fff; }
 """
 
 
@@ -326,6 +337,46 @@ class HtmlReporter:
         """Return ' class="col-hidden"' when the column is configured as hidden."""
         return ' class="col-hidden"' if not columns.get(col, True) else ""
 
+    @staticmethod
+    def _color_level(pct: float) -> int:
+        """Map a percentage [0, 100] to a colour level 0–9."""
+        return min(9, int(pct / 10))
+
+    @staticmethod
+    def _bucket_level(value: float, max_value: float) -> int:
+        """Map a value in [0, max_value] to a colour level 0–9."""
+        if max_value <= 0:
+            return 0
+        return min(9, int(value / max_value * 10))
+
+    def _collect_ranges(self, node: FolderNode) -> dict[str, float]:
+        """DFS-collect max values for the range-bucketed index columns."""
+        maxv: dict[str, float] = {
+            "inc-asserts": 0.0, "del-asserts": 0.0,
+            "inc-assert-density": 0.0, "del-assert-density": 0.0,
+        }
+        self._collect_ranges_rec(node, maxv)
+        return maxv
+
+    def _collect_ranges_rec(self, node: FolderNode, maxv: dict[str, float]) -> None:
+        for sub in node.subfolders.values():
+            inc_a = sub.agg_incidental_asserts()
+            del_a = sub.agg_deliberate_asserts()
+            denom = sub.agg_total_stmts() + sub.agg_arcs_total()
+            maxv["inc-asserts"] = max(maxv["inc-asserts"], inc_a)
+            maxv["del-asserts"] = max(maxv["del-asserts"], del_a)
+            if denom:
+                maxv["inc-assert-density"] = max(maxv["inc-assert-density"], inc_a / denom)
+                maxv["del-assert-density"] = max(maxv["del-assert-density"], del_a / denom)
+            self._collect_ranges_rec(sub, maxv)
+        for entry in node.files:
+            denom = entry.total_stmts + entry.arcs_total
+            maxv["inc-asserts"] = max(maxv["inc-asserts"], entry.incidental_asserts)
+            maxv["del-asserts"] = max(maxv["del-asserts"], entry.deliberate_asserts)
+            if denom:
+                maxv["inc-assert-density"] = max(maxv["inc-assert-density"], entry.incidental_asserts / denom)
+                maxv["del-assert-density"] = max(maxv["del-assert-density"], entry.deliberate_asserts / denom)
+
     def write(self, report: CoverageReport, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -380,15 +431,29 @@ class HtmlReporter:
             self.render_file_page(s.rel_path, stats_html, "".join(rows)), encoding="utf-8"
         )
 
-    def _render_tree_rows(self, node: FolderNode, depth: int, parent_id: str) -> list[str]:
+    def _render_tree_rows(
+        self, node: FolderNode, depth: int, parent_id: str,
+        _ranges: dict[str, float] | None = None,
+    ) -> list[str]:
         """DFS traversal: emit a folder row then its children (subfolders, then files)."""
+        if _ranges is None:
+            _ranges = self._collect_ranges(node)
+
         rows: list[str] = []
         parent_attr = f' data-parent="{parent_id}"' if parent_id else ""
         folder_indent = depth * 24 + 4
         file_indent = depth * 24 + 28
         fmt = f".{self.precision}f"
         idx = self.INDEX_COLUMNS
-        c = self._c  # shorthand: c(col, idx) → ' class="col-hidden"' or ''
+
+        def cell_cls(col: str, lvl: int | None = None) -> str:
+            """Build class attribute for a data cell: col-hidden + optional colour level."""
+            classes: list[str] = []
+            if not idx.get(col, True):
+                classes.append("col-hidden")
+            if lvl is not None:
+                classes.append(f"lvl-{lvl}")
+            return f' class="{" ".join(classes)}"' if classes else ""
 
         for name in sorted(node.subfolders):
             sub = node.subfolders[name]
@@ -404,54 +469,60 @@ class HtmlReporter:
             inc_asserts = sub.agg_incidental_asserts()
             del_asserts = sub.agg_deliberate_asserts()
             total_denom = total + arcs_total
-            total_pct = (total_cov + arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-            delib_pct = (delib + arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
-            incid_pct = (incid + arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+            total_pct = (total_cov + arcs_covered) / total_denom * 100.0 if total_denom else 100.0
+            delib_pct = (delib + arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
+            incid_pct = (incid + arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
             inc_density = inc_asserts / total_denom if total_denom else 0.0
             del_density = del_asserts / total_denom if total_denom else 0.0
+            tpct_lvl = self._color_level(total_pct)
+            dpct_lvl = self._color_level(delib_pct)
+            ipct_lvl = self._color_level(incid_pct)
             rows.append(
                 f'<tr id="{fid}" class="folder-row"{parent_attr}'
                 f' onclick="toggleFolder(\'{fid}\')">'
                 f'<td style="padding-left:{folder_indent}px">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
-                f'<td data-col="stmts"{c("stmts", idx)}>{total}</td>'
-                f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{c("delib-covered", idx)}>{delib}</td>'
-                f'<td data-col="incid-covered"{c("incid-covered", idx)}>{incid}</td>'
-                f'<td data-col="inc-asserts"{c("inc-asserts", idx)}>{inc_asserts}</td>'
-                f'<td data-col="del-asserts"{c("del-asserts", idx)}>{del_asserts}</td>'
-                f'<td data-col="inc-assert-density"{c("inc-assert-density", idx)}>{inc_density:{fmt}}</td>'
-                f'<td data-col="del-assert-density"{c("del-assert-density", idx)}>{del_density:{fmt}}</td>'
+                f'<td data-col="stmts"{cell_cls("stmts")}>{total}</td>'
+                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{delib}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{incid}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(inc_asserts, _ranges["inc-asserts"]))}>{inc_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(del_asserts, _ranges["del-asserts"]))}>{del_asserts}</td>'
+                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(inc_density, _ranges["inc-assert-density"]))}>{inc_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(del_density, _ranges["del-assert-density"]))}>{del_density:{fmt}}</td>'
                 f'</tr>'
             )
-            rows.extend(self._render_tree_rows(sub, depth + 1, fid))
+            rows.extend(self._render_tree_rows(sub, depth + 1, fid, _ranges))
 
         for entry in sorted(node.files, key=lambda f: f.rel_path):
             filename = entry.rel_path.split("/")[-1]
             file_html_name = entry.rel_path.replace("/", "__") + ".html"
             total = entry.total_stmts
             total_denom = total + entry.arcs_total
-            total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 0.0
-            delib_pct = (entry.deliberate_covered + entry.arcs_deliberate) / total_denom * 100.0 if total_denom else 0.0
-            incid_pct = (entry.incidental_covered + entry.arcs_incidental) / total_denom * 100.0 if total_denom else 0.0
+            total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 100.0
+            delib_pct = (entry.deliberate_covered + entry.arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
+            incid_pct = (entry.incidental_covered + entry.arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
             inc_density = entry.incidental_asserts / total_denom if total_denom else 0.0
             del_density = entry.deliberate_asserts / total_denom if total_denom else 0.0
+            tpct_lvl = self._color_level(total_pct)
+            dpct_lvl = self._color_level(delib_pct)
+            ipct_lvl = self._color_level(incid_pct)
             rows.append(
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
                 f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
-                f'<td data-col="stmts"{c("stmts", idx)}>{total}</td>'
-                f'<td data-col="total-pct"{c("total-pct", idx)}>{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct"{c("delib-pct", idx)}>{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct"{c("incid-pct", idx)}>{incid_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{c("delib-covered", idx)}>{entry.deliberate_covered}</td>'
-                f'<td data-col="incid-covered"{c("incid-covered", idx)}>{entry.incidental_covered}</td>'
-                f'<td data-col="inc-asserts"{c("inc-asserts", idx)}>{entry.incidental_asserts}</td>'
-                f'<td data-col="del-asserts"{c("del-asserts", idx)}>{entry.deliberate_asserts}</td>'
-                f'<td data-col="inc-assert-density"{c("inc-assert-density", idx)}>{inc_density:{fmt}}</td>'
-                f'<td data-col="del-assert-density"{c("del-assert-density", idx)}>{del_density:{fmt}}</td>'
+                f'<td data-col="stmts"{cell_cls("stmts")}>{total}</td>'
+                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{delib_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{incid_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{entry.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{entry.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(entry.incidental_asserts, _ranges["inc-asserts"]))}>{entry.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(entry.deliberate_asserts, _ranges["del-asserts"]))}>{entry.deliberate_asserts}</td>'
+                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(inc_density, _ranges["inc-assert-density"]))}>{inc_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(del_density, _ranges["del-assert-density"]))}>{del_density:{fmt}}</td>'
                 f'</tr>'
             )
 
