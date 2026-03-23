@@ -13,6 +13,11 @@ from coverage_stats.executable_lines import get_executable_lines
 from coverage_stats.store import LineData, SessionStore
 
 
+def _pct(numerator: int, denominator: int) -> float:
+    """Coverage percentage; returns 100.0 when denominator is 0 (nothing to cover)."""
+    return numerator / denominator * 100.0 if denominator else 100.0
+
+
 @dataclass
 class _BranchAnalysis:
     partial: set[int]    # line numbers with partial branch coverage
@@ -37,6 +42,25 @@ class LineReport:
 
 
 @dataclass
+class IndexRowData:
+    """All values needed to render one row on the index page.
+
+    Produced by ``FileSummary.to_index_row()`` and ``FolderNode.to_index_row()``;
+    ``HtmlReporter._render_tree_rows`` only formats, never computes.
+    """
+    total_stmts: int
+    total_pct: float
+    deliberate_pct: float
+    incidental_pct: float
+    deliberate_covered: int
+    incidental_covered: int
+    incidental_asserts: int
+    deliberate_asserts: int
+    inc_assert_density: float   # incidental_asserts / (stmts + arcs), 0.0 when denom=0
+    del_assert_density: float   # deliberate_asserts  / (stmts + arcs), 0.0 when denom=0
+
+
+@dataclass
 class FileSummary:
     rel_path: str
     abs_path: str
@@ -54,6 +78,21 @@ class FileSummary:
     partial_count: int
     incidental_asserts: int = 0
     deliberate_asserts: int = 0
+
+    def to_index_row(self) -> IndexRowData:
+        denom = self.total_stmts + self.arcs_total
+        return IndexRowData(
+            total_stmts=self.total_stmts,
+            total_pct=self.total_pct,
+            deliberate_pct=self.deliberate_pct,
+            incidental_pct=self.incidental_pct,
+            deliberate_covered=self.deliberate_covered,
+            incidental_covered=self.incidental_covered,
+            incidental_asserts=self.incidental_asserts,
+            deliberate_asserts=self.deliberate_asserts,
+            inc_assert_density=self.incidental_asserts / denom if denom else 0.0,
+            del_assert_density=self.deliberate_asserts / denom if denom else 0.0,
+        )
 
 
 @dataclass
@@ -110,6 +149,27 @@ class FolderNode:
     def agg_deliberate_asserts(self) -> int:
         return sum(f.deliberate_asserts for f in self.files) + sum(
             s.agg_deliberate_asserts() for s in self.subfolders.values()
+        )
+
+    def to_index_row(self) -> IndexRowData:
+        total = self.agg_total_stmts()
+        arcs_total = self.agg_arcs_total()
+        denom = total + arcs_total
+        inc_asserts = self.agg_incidental_asserts()
+        del_asserts = self.agg_deliberate_asserts()
+        delib = self.agg_deliberate()
+        incid = self.agg_incidental()
+        return IndexRowData(
+            total_stmts=total,
+            total_pct=_pct(self.agg_total_covered() + self.agg_arcs_covered(), denom),
+            deliberate_pct=_pct(delib + self.agg_arcs_deliberate(), denom),
+            incidental_pct=_pct(incid + self.agg_arcs_incidental(), denom),
+            deliberate_covered=delib,
+            incidental_covered=incid,
+            incidental_asserts=inc_asserts,
+            deliberate_asserts=del_asserts,
+            inc_assert_density=inc_asserts / denom if denom else 0.0,
+            del_assert_density=del_asserts / denom if denom else 0.0,
         )
 
 
@@ -197,9 +257,9 @@ class DefaultReportBuilder:
             deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
 
             total_denom = total_stmts + branch_analysis.arcs_total
-            total_pct = (total_covered + branch_analysis.arcs_covered) / total_denom * 100.0 if total_denom else 100.0
-            deliberate_pct = (deliberate_covered + branch_analysis.arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
-            incidental_pct = (incidental_covered + branch_analysis.arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
+            total_pct = _pct(total_covered + branch_analysis.arcs_covered, total_denom)
+            deliberate_pct = _pct(deliberate_covered + branch_analysis.arcs_deliberate, total_denom)
+            incidental_pct = _pct(incidental_covered + branch_analysis.arcs_incidental, total_denom)
 
             partial_count = len(branch_analysis.partial & executable)
 

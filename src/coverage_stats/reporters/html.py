@@ -360,22 +360,18 @@ class HtmlReporter:
 
     def _collect_ranges_rec(self, node: FolderNode, maxv: dict[str, float]) -> None:
         for sub in node.subfolders.values():
-            inc_a = sub.agg_incidental_asserts()
-            del_a = sub.agg_deliberate_asserts()
-            denom = sub.agg_total_stmts() + sub.agg_arcs_total()
-            maxv["inc-asserts"] = max(maxv["inc-asserts"], inc_a)
-            maxv["del-asserts"] = max(maxv["del-asserts"], del_a)
-            if denom:
-                maxv["inc-assert-density"] = max(maxv["inc-assert-density"], inc_a / denom)
-                maxv["del-assert-density"] = max(maxv["del-assert-density"], del_a / denom)
+            row = sub.to_index_row()
+            maxv["inc-asserts"] = max(maxv["inc-asserts"], row.incidental_asserts)
+            maxv["del-asserts"] = max(maxv["del-asserts"], row.deliberate_asserts)
+            maxv["inc-assert-density"] = max(maxv["inc-assert-density"], row.inc_assert_density)
+            maxv["del-assert-density"] = max(maxv["del-assert-density"], row.del_assert_density)
             self._collect_ranges_rec(sub, maxv)
         for entry in node.files:
-            denom = entry.total_stmts + entry.arcs_total
-            maxv["inc-asserts"] = max(maxv["inc-asserts"], entry.incidental_asserts)
-            maxv["del-asserts"] = max(maxv["del-asserts"], entry.deliberate_asserts)
-            if denom:
-                maxv["inc-assert-density"] = max(maxv["inc-assert-density"], entry.incidental_asserts / denom)
-                maxv["del-assert-density"] = max(maxv["del-assert-density"], entry.deliberate_asserts / denom)
+            row = entry.to_index_row()
+            maxv["inc-asserts"] = max(maxv["inc-asserts"], row.incidental_asserts)
+            maxv["del-asserts"] = max(maxv["del-asserts"], row.deliberate_asserts)
+            maxv["inc-assert-density"] = max(maxv["inc-assert-density"], row.inc_assert_density)
+            maxv["del-assert-density"] = max(maxv["del-assert-density"], row.del_assert_density)
 
     def write(self, report: CoverageReport, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -458,40 +454,25 @@ class HtmlReporter:
         for name in sorted(node.subfolders):
             sub = node.subfolders[name]
             fid = "f-" + sub.path.replace("/", "-").replace(".", "_")
-            total = sub.agg_total_stmts()
-            total_cov = sub.agg_total_covered()
-            arcs_total = sub.agg_arcs_total()
-            arcs_covered = sub.agg_arcs_covered()
-            delib = sub.agg_deliberate()
-            incid = sub.agg_incidental()
-            arcs_deliberate = sub.agg_arcs_deliberate()
-            arcs_incidental = sub.agg_arcs_incidental()
-            inc_asserts = sub.agg_incidental_asserts()
-            del_asserts = sub.agg_deliberate_asserts()
-            total_denom = total + arcs_total
-            total_pct = (total_cov + arcs_covered) / total_denom * 100.0 if total_denom else 100.0
-            delib_pct = (delib + arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
-            incid_pct = (incid + arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
-            inc_density = inc_asserts / total_denom if total_denom else 0.0
-            del_density = del_asserts / total_denom if total_denom else 0.0
-            tpct_lvl = self._color_level(total_pct)
-            dpct_lvl = self._color_level(delib_pct)
-            ipct_lvl = self._color_level(incid_pct)
+            row = sub.to_index_row()
+            tpct_lvl = self._color_level(row.total_pct)
+            dpct_lvl = self._color_level(row.deliberate_pct)
+            ipct_lvl = self._color_level(row.incidental_pct)
             rows.append(
                 f'<tr id="{fid}" class="folder-row"{parent_attr}'
                 f' onclick="toggleFolder(\'{fid}\')">'
                 f'<td style="padding-left:{folder_indent}px">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
-                f'<td data-col="stmts"{cell_cls("stmts")}>{total}</td>'
-                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{incid_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{delib}</td>'
-                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{incid}</td>'
-                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(inc_asserts, _ranges["inc-asserts"]))}>{inc_asserts}</td>'
-                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(del_asserts, _ranges["del-asserts"]))}>{del_asserts}</td>'
-                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(inc_density, _ranges["inc-assert-density"]))}>{inc_density:{fmt}}</td>'
-                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(del_density, _ranges["del-assert-density"]))}>{del_density:{fmt}}</td>'
+                f'<td data-col="stmts"{cell_cls("stmts")}>{row.total_stmts}</td>'
+                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{row.total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{row.deliberate_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{row.incidental_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{row.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{row.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(row.incidental_asserts, _ranges["inc-asserts"]))}>{row.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(row.deliberate_asserts, _ranges["del-asserts"]))}>{row.deliberate_asserts}</td>'
+                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
                 f'</tr>'
             )
             rows.extend(self._render_tree_rows(sub, depth + 1, fid, _ranges))
@@ -499,30 +480,24 @@ class HtmlReporter:
         for entry in sorted(node.files, key=lambda f: f.rel_path):
             filename = entry.rel_path.split("/")[-1]
             file_html_name = entry.rel_path.replace("/", "__") + ".html"
-            total = entry.total_stmts
-            total_denom = total + entry.arcs_total
-            total_pct = (entry.total_covered + entry.arcs_covered) / total_denom * 100.0 if total_denom else 100.0
-            delib_pct = (entry.deliberate_covered + entry.arcs_deliberate) / total_denom * 100.0 if total_denom else 100.0
-            incid_pct = (entry.incidental_covered + entry.arcs_incidental) / total_denom * 100.0 if total_denom else 100.0
-            inc_density = entry.incidental_asserts / total_denom if total_denom else 0.0
-            del_density = entry.deliberate_asserts / total_denom if total_denom else 0.0
-            tpct_lvl = self._color_level(total_pct)
-            dpct_lvl = self._color_level(delib_pct)
-            ipct_lvl = self._color_level(incid_pct)
+            row = entry.to_index_row()
+            tpct_lvl = self._color_level(row.total_pct)
+            dpct_lvl = self._color_level(row.deliberate_pct)
+            ipct_lvl = self._color_level(row.incidental_pct)
             rows.append(
                 f'<tr{parent_attr}>'
                 f'<td style="padding-left:{file_indent}px">'
                 f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
-                f'<td data-col="stmts"{cell_cls("stmts")}>{total}</td>'
-                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{total_pct:{fmt}}%</td>'
-                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{delib_pct:{fmt}}%</td>'
-                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{incid_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{entry.deliberate_covered}</td>'
-                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{entry.incidental_covered}</td>'
-                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(entry.incidental_asserts, _ranges["inc-asserts"]))}>{entry.incidental_asserts}</td>'
-                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(entry.deliberate_asserts, _ranges["del-asserts"]))}>{entry.deliberate_asserts}</td>'
-                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(inc_density, _ranges["inc-assert-density"]))}>{inc_density:{fmt}}</td>'
-                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(del_density, _ranges["del-assert-density"]))}>{del_density:{fmt}}</td>'
+                f'<td data-col="stmts"{cell_cls("stmts")}>{row.total_stmts}</td>'
+                f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{row.total_pct:{fmt}}%</td>'
+                f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{row.deliberate_pct:{fmt}}%</td>'
+                f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{row.incidental_pct:{fmt}}%</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{row.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{row.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(row.incidental_asserts, _ranges["inc-asserts"]))}>{row.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(row.deliberate_asserts, _ranges["del-asserts"]))}>{row.deliberate_asserts}</td>'
+                f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
+                f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
                 f'</tr>'
             )
 
