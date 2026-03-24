@@ -1,6 +1,12 @@
 TEST
   * [v] The coverage-stats-example project is set up to run with coverage.py and xdist! Just run `nox` (it runs as a pre-commit hook)
 
+DOCS:
+  * architecture docs
+  * in-report docs (html)
+  * cli docs
+  * README docs (with pictures)
+
 CORE
   * [v] instead of "lines", we need "statements", like coverage does it
   * [v] add "number of incidental/deliberate tests that ran on this line of code"  
@@ -11,12 +17,15 @@ CORE
   * [v] html and report_data duplicate calculations -> refactor!
   * [v] document the columns (in README, on the index page and on individual report pages)
   * option to show all tests that ran on a certain line/file/folder
+  * code comment to turn off counting of inc/deliberate asserts/test/executions
 
 REPORTING:
   * ordering or html columns
   * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
+  * [v] color file report pages
   * [v] coloring of stats (from red-ish to green-ish) 
+    * [] the colors of folders, make them - % are comparable, # are not, and folders should be added to a comparison bucket different from that of files 
   * [v] in the html index, add all stats (# statements, #/% deliberate, #/% incidental, # asserts, #asserts/#lines)
   * [v] in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * [v] json/csv reporting: do they also display partial lines? They should!

@@ -16,6 +16,7 @@ from coverage_stats.reporters.html import (
 )
 from coverage_stats.reporters.report_data import (
     FileSummary,
+    LineReport,
     build_folder_tree,
     build_report,
 )
@@ -675,7 +676,7 @@ def test_css_override_on_subclass_replaces_default():
 def test_subclass_render_line_override_is_called(tmp_path):
     """write() must call self.render_line(), not the module-level shim."""
     class MarkedReporter(HtmlReporter):
-        def render_line(self, lineno, source_text, ld, executable, partial=False) -> str:
+        def render_line(self, lineno, source_text, ld, executable, partial=False, _ranges=None) -> str:
             return f'<tr class="custom-row"><td>{lineno}</td></tr>'
 
     store = SessionStore()
@@ -1019,3 +1020,151 @@ def test_file_checkbox_unchecked_when_python_config_is_false():
         assert other_cb and re.search(r'\schecked\s*>', other_cb.group(0)), (
             f"checkbox for '{col_id}' should be checked"
         )
+
+
+# ---------------------------------------------------------------------------
+# File-page cell colour levels (_collect_file_ranges + render_line _ranges)
+# ---------------------------------------------------------------------------
+
+
+def _make_lr(
+    lineno: int = 1,
+    executable: bool = True,
+    ie: int = 0, de: int = 0,
+    ia: int = 0, da: int = 0,
+    it: int = 0, dt: int = 0,
+    partial: bool = False,
+) -> LineReport:
+    return LineReport(
+        lineno=lineno,
+        source_text="x = 1",
+        executable=executable,
+        partial=partial,
+        incidental_executions=ie,
+        deliberate_executions=de,
+        incidental_asserts=ia,
+        deliberate_asserts=da,
+        incidental_tests=it,
+        deliberate_tests=dt,
+    )
+
+
+@covers(HtmlReporter._collect_file_ranges)
+def test_collect_file_ranges_finds_max_values():
+    lines = [
+        _make_lr(ie=3, de=7, ia=1, da=5, it=2, dt=4),
+        _make_lr(ie=10, de=2, ia=8, da=3, it=6, dt=9),
+    ]
+    reporter = HtmlReporter()
+    ranges = reporter._collect_file_ranges(lines)
+    assert ranges["inc-exec"] == 10
+    assert ranges["del-exec"] == 7
+    assert ranges["inc-asserts"] == 8
+    assert ranges["del-asserts"] == 5
+    assert ranges["inc-tests"] == 6
+    assert ranges["del-tests"] == 9
+
+
+@covers(HtmlReporter._collect_file_ranges)
+def test_collect_file_ranges_ignores_non_executable_lines():
+    """Non-executable lines (comments, blanks) must not influence the range maxima."""
+    lines = [
+        _make_lr(executable=False, ie=999, de=999, ia=999, da=999, it=999, dt=999),
+        _make_lr(executable=True, ie=5, de=5, ia=5, da=5, it=5, dt=5),
+    ]
+    reporter = HtmlReporter()
+    ranges = reporter._collect_file_ranges(lines)
+    assert ranges["inc-exec"] == 5
+    assert ranges["del-exec"] == 5
+
+
+@covers(HtmlReporter._collect_file_ranges)
+def test_collect_file_ranges_all_non_executable_returns_zeros():
+    lines = [_make_lr(executable=False, ie=10, de=10)]
+    ranges = HtmlReporter()._collect_file_ranges(lines)
+    assert all(v == 0.0 for v in ranges.values())
+
+
+@covers(HtmlReporter.render_line)
+def test_render_line_executable_with_ranges_gets_lvl_class():
+    """Executable lines get lvl-N classes on data cells when _ranges is supplied."""
+    ld = _make_ld(ie=10, de=10, ia=10, da=10)
+    ranges = {
+        "inc-exec": 10.0, "del-exec": 10.0,
+        "inc-asserts": 10.0, "del-asserts": 10.0,
+        "inc-tests": 10.0, "del-tests": 10.0,
+    }
+    html = HtmlReporter().render_line(1, "x = 1", ld, executable=True, _ranges=ranges)
+    # value == max → bucket index 10 → clamped to 9
+    assert 'class="lvl-9"' in html
+
+
+@covers(HtmlReporter.render_line)
+def test_render_line_color_level_reflects_bucket():
+    """The bucket level should reflect the value's position within the range."""
+    ld = _make_ld(ie=5, de=0)
+    ranges = {
+        "inc-exec": 10.0, "del-exec": 10.0,
+        "inc-asserts": 10.0, "del-asserts": 10.0,
+        "inc-tests": 10.0, "del-tests": 10.0,
+    }
+    html = HtmlReporter().render_line(1, "x = 1", ld, executable=True, _ranges=ranges)
+    # 5 / 10 * 10 = 5 → lvl-5
+    assert 'data-col="inc-exec" class="lvl-5"' in html
+    # 0 / 10 * 10 = 0 → lvl-0
+    assert 'data-col="del-exec" class="lvl-0"' in html
+
+
+@covers(HtmlReporter.render_line)
+def test_render_line_non_executable_with_ranges_no_lvl_class():
+    """Non-executable lines must never receive colour level classes."""
+    ld = _make_ld(ie=10, de=10)
+    ranges = {
+        "inc-exec": 10.0, "del-exec": 10.0,
+        "inc-asserts": 10.0, "del-asserts": 10.0,
+        "inc-tests": 10.0, "del-tests": 10.0,
+    }
+    html = HtmlReporter().render_line(1, "# comment", ld, executable=False, _ranges=ranges)
+    assert "lvl-" not in html
+    assert 'class=' not in html
+
+
+@covers(HtmlReporter.render_line)
+def test_render_line_without_ranges_no_lvl_class():
+    """Without _ranges, no colour level classes are added (backward-compatible default)."""
+    ld = _make_ld(ie=5, de=3, ia=2, da=1)
+    html = HtmlReporter().render_line(1, "x = 1", ld, executable=True)
+    assert "lvl-" not in html
+
+
+@covers(HtmlReporter.render_line)
+def test_render_line_missed_executable_with_ranges_gets_lvl_0():
+    """Missed executable lines (all zeros) get lvl-0 on every data cell."""
+    ranges = {
+        "inc-exec": 10.0, "del-exec": 10.0,
+        "inc-asserts": 10.0, "del-asserts": 10.0,
+        "inc-tests": 10.0, "del-tests": 10.0,
+    }
+    html = HtmlReporter().render_line(1, "x = 1", None, executable=True, _ranges=ranges)
+    assert 'class="missed"' in html
+    # Every data cell should be lvl-0 (0 / max = 0)
+    assert html.count('class="lvl-0"') == 6
+
+
+@covers(HtmlReporter._write_file_page)
+def test_write_html_file_page_contains_color_classes(tmp_path):
+    """write() must produce file pages with lvl-N classes when lines have non-zero values."""
+    store = SessionStore()
+    rootdir = tmp_path / "project"
+    rootdir.mkdir()
+    # Two lines with different incidental execution counts so bucketing produces both lvl-0 and lvl-9
+    store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
+    store.get_or_create((str(rootdir / "mod.py"), 2)).incidental_executions = 10
+    config = make_config(rootdir)
+    report = build_report(store, config)
+
+    out_dir = tmp_path / "out"
+    write_html(report, out_dir)
+
+    file_html = (out_dir / "mod.py.html").read_text()
+    assert "lvl-" in file_html

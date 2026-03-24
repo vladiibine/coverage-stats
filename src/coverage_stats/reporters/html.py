@@ -8,6 +8,7 @@ from coverage_stats.reporters.report_data import (
     CoverageReport,
     FileReport,
     FolderNode,
+    LineReport,
 )
 
 _CSS = """
@@ -508,6 +509,24 @@ class HtmlReporter:
             return 0
         return min(9, int(value / max_value * 10))
 
+    def _collect_file_ranges(self, lines: list[LineReport]) -> dict[str, float]:
+        """Find the max value per file-page column across all executable lines."""
+        maxv: dict[str, float] = {
+            "inc-exec": 0.0, "del-exec": 0.0,
+            "inc-asserts": 0.0, "del-asserts": 0.0,
+            "inc-tests": 0.0, "del-tests": 0.0,
+        }
+        for lr in lines:
+            if not lr.executable:
+                continue
+            maxv["inc-exec"] = max(maxv["inc-exec"], lr.incidental_executions)
+            maxv["del-exec"] = max(maxv["del-exec"], lr.deliberate_executions)
+            maxv["inc-asserts"] = max(maxv["inc-asserts"], lr.incidental_asserts)
+            maxv["del-asserts"] = max(maxv["del-asserts"], lr.deliberate_asserts)
+            maxv["inc-tests"] = max(maxv["inc-tests"], lr.incidental_tests)
+            maxv["del-tests"] = max(maxv["del-tests"], lr.deliberate_tests)
+        return maxv
+
     def _collect_ranges(self, node: FolderNode) -> dict[str, float]:
         """DFS-collect max values for the range-bucketed index columns."""
         maxv: dict[str, float] = {
@@ -568,6 +587,7 @@ class HtmlReporter:
             s.partial_count,
         )
 
+        file_ranges = self._collect_file_ranges(file_report.lines)
         rows = []
         for lr in file_report.lines:
             ld: LineData | None = None
@@ -580,7 +600,10 @@ class HtmlReporter:
                     incidental_tests=lr.incidental_tests,
                     deliberate_tests=lr.deliberate_tests,
                 )
-            rows.append(self.render_line(lr.lineno, lr.source_text, ld, lr.executable, partial=lr.partial))
+            rows.append(self.render_line(
+                lr.lineno, lr.source_text, ld, lr.executable,
+                partial=lr.partial, _ranges=file_ranges,
+            ))
 
         out_path.write_text(
             self.render_file_page(s.rel_path, stats_html, "".join(rows)), encoding="utf-8"
@@ -687,54 +710,74 @@ class HtmlReporter:
         )
 
     def render_line(self, lineno: int, source_text: str, ld: LineData | None, executable: bool,
-                    partial: bool = False) -> str:
-        if not executable:
-            css_class = ""
-            inc_exec = del_exec = inc_asserts = del_asserts = inc_tests = del_tests = ""
-        elif partial:
-            css_class = "partial"
-            inc_exec = str(ld.incidental_executions) if ld else "0"
-            del_exec = str(ld.deliberate_executions) if ld else "0"
-            inc_asserts = str(ld.incidental_asserts) if ld else "0"
-            del_asserts = str(ld.deliberate_asserts) if ld else "0"
-            inc_tests = str(ld.incidental_tests) if ld else "0"
-            del_tests = str(ld.deliberate_tests) if ld else "0"
-        elif ld is not None and ld.deliberate_executions > 0:
-            css_class = "deliberate"
-            inc_exec = str(ld.incidental_executions)
-            del_exec = str(ld.deliberate_executions)
-            inc_asserts = str(ld.incidental_asserts)
-            del_asserts = str(ld.deliberate_asserts)
-            inc_tests = str(ld.incidental_tests)
-            del_tests = str(ld.deliberate_tests)
-        elif ld is not None and ld.incidental_executions > 0:
-            css_class = "incidental"
-            inc_exec = str(ld.incidental_executions)
-            del_exec = str(ld.deliberate_executions)
-            inc_asserts = str(ld.incidental_asserts)
-            del_asserts = str(ld.deliberate_asserts)
-            inc_tests = str(ld.incidental_tests)
-            del_tests = str(ld.deliberate_tests)
-        else:
-            css_class = "missed"
-            inc_exec = del_exec = inc_asserts = del_asserts = inc_tests = del_tests = "0"
+                    partial: bool = False, _ranges: dict[str, float] | None = None) -> str:
         escaped = _html.escape(source_text)
         branch_marker = '<td class="branch-warn" title="not all branches taken">⚑</td>' if partial else "<td></td>"
-        class_attr = f' class="{css_class}"' if css_class else ""
         fc = self.FILE_COLUMNS
-        c = self._c
+
+        if not executable:
+            c = self._c
+            return (
+                f'<tr>'
+                f'<td>{lineno}</td>'
+                f'{branch_marker}'
+                f'<td><pre style="margin:0">{escaped}</pre></td>'
+                f'<td data-col="inc-exec"{c("inc-exec", fc)}></td>'
+                f'<td data-col="del-exec"{c("del-exec", fc)}></td>'
+                f'<td data-col="inc-asserts"{c("inc-asserts", fc)}></td>'
+                f'<td data-col="del-asserts"{c("del-asserts", fc)}></td>'
+                f'<td data-col="inc-tests"{c("inc-tests", fc)}></td>'
+                f'<td data-col="del-tests"{c("del-tests", fc)}></td>'
+                f'</tr>'
+            )
+
+        if partial:
+            css_class = "partial"
+            ie = ld.incidental_executions if ld else 0
+            de = ld.deliberate_executions if ld else 0
+            ia = ld.incidental_asserts if ld else 0
+            da = ld.deliberate_asserts if ld else 0
+            it_ = ld.incidental_tests if ld else 0
+            dt_ = ld.deliberate_tests if ld else 0
+        elif ld is not None and ld.deliberate_executions > 0:
+            css_class = "deliberate"
+            ie, de, ia, da, it_, dt_ = (
+                ld.incidental_executions, ld.deliberate_executions,
+                ld.incidental_asserts, ld.deliberate_asserts,
+                ld.incidental_tests, ld.deliberate_tests,
+            )
+        elif ld is not None and ld.incidental_executions > 0:
+            css_class = "incidental"
+            ie, de, ia, da, it_, dt_ = (
+                ld.incidental_executions, ld.deliberate_executions,
+                ld.incidental_asserts, ld.deliberate_asserts,
+                ld.incidental_tests, ld.deliberate_tests,
+            )
+        else:
+            css_class = "missed"
+            ie = de = ia = da = it_ = dt_ = 0
+
+        def cell(col: str, val: int) -> str:
+            classes: list[str] = []
+            if not fc.get(col, True):
+                classes.append("col-hidden")
+            if _ranges is not None:
+                classes.append(f"lvl-{self._bucket_level(val, _ranges.get(col, 0.0))}")
+            cls = f' class="{" ".join(classes)}"' if classes else ""
+            return f'<td data-col="{col}"{cls}>{val}</td>'
+
         return (
-            f'<tr{class_attr}>'
+            f'<tr class="{css_class}">'
             f'<td>{lineno}</td>'
             f'{branch_marker}'
             f'<td><pre style="margin:0">{escaped}</pre></td>'
-            f'<td data-col="inc-exec"{c("inc-exec", fc)}>{inc_exec}</td>'
-            f'<td data-col="del-exec"{c("del-exec", fc)}>{del_exec}</td>'
-            f'<td data-col="inc-asserts"{c("inc-asserts", fc)}>{inc_asserts}</td>'
-            f'<td data-col="del-asserts"{c("del-asserts", fc)}>{del_asserts}</td>'
-            f'<td data-col="inc-tests"{c("inc-tests", fc)}>{inc_tests}</td>'
-            f'<td data-col="del-tests"{c("del-tests", fc)}>{del_tests}</td>'
-            f'</tr>'
+            + cell("inc-exec", ie)
+            + cell("del-exec", de)
+            + cell("inc-asserts", ia)
+            + cell("del-asserts", da)
+            + cell("inc-tests", it_)
+            + cell("del-tests", dt_)
+            + '</tr>'
         )
 
     def render_index_page(self, rows_html: str) -> str:
