@@ -23,6 +23,7 @@ REPORTING:
   * ordering or html columns
   * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
+  * index should show # inc/del tests
   * [v] color file report pages
   * [v] coloring of stats (from red-ish to green-ish) 
     * [] the colors of folders, make them - % are comparable, # are not, and folders should be added to a comparison bucket different from that of files 
@@ -44,6 +45,8 @@ REPORTING:
   * [v] summary per folder, in index.html
 
 Non-functional requirements:
+  * split HtmlReporter - getting too big. Idea: HtmlIndexReporter + HtmlFileReporter (exposed as attrs on HtmlReporter, so user can customize just 1 class, so we don't get too many customization options). Also split the calculation part from the HTML part
+    * also idea: Maybe for the entire customization process we can provide just 1 option: CoverageStatsConfig, with get_<feature>_class() for customizing feature X.
   * clone some open source projects, run its tests, check the coverage for it 
   * publish on pypi
   * [v] make it extensible (allow plugging into the stats collection)

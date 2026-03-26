@@ -82,7 +82,7 @@ class FileSummary:
     def to_index_row(self) -> IndexRowData:
         denom = self.total_stmts + self.arcs_total
         return IndexRowData(
-            total_stmts=self.total_stmts,
+            total_stmts=denom,
             total_pct=self.total_pct,
             deliberate_pct=self.deliberate_pct,
             incidental_pct=self.incidental_pct,
@@ -160,7 +160,7 @@ class FolderNode:
         delib = self.agg_deliberate()
         incid = self.agg_incidental()
         return IndexRowData(
-            total_stmts=total,
+            total_stmts=denom,
             total_pct=_pct(self.agg_total_covered() + self.agg_arcs_covered(), denom),
             deliberate_pct=_pct(delib + self.agg_arcs_deliberate(), denom),
             incidental_pct=_pct(incid + self.agg_arcs_incidental(), denom),

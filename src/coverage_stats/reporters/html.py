@@ -401,19 +401,23 @@ class HtmlReporter:
         ),
         "delib-covered": (
             "Raw count of statements + branches covered deliberately. "
-            "Colored using the same level as the Deliberate % column."
+            "No color is applied — raw counts are not comparable across files of different sizes."
         ),
         "incid-covered": (
             "Raw count of statements + branches covered incidentally. "
-            "Colored using the same level as the Incidental % column."
+            "No color is applied — raw counts are not comparable across files of different sizes."
         ),
         "inc-asserts": (
             "Total number of assert statements executed during incidental coverage "
-            "of this file or folder."
+            "of this file or folder. "
+            "No color is applied — larger files will naturally accumulate higher counts "
+            "regardless of test quality."
         ),
         "del-asserts": (
             "Total number of assert statements executed during deliberate coverage "
-            "of this file or folder."
+            "of this file or folder. "
+            "No color is applied — larger files will naturally accumulate higher counts "
+            "regardless of test quality."
         ),
         "inc-assert-density": (
             "Incidental assert count divided by total statements + branches. "
@@ -649,10 +653,10 @@ class HtmlReporter:
                 f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{row.total_pct:{fmt}}%</td>'
                 f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{row.deliberate_pct:{fmt}}%</td>'
                 f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{row.incidental_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{row.deliberate_covered}</td>'
-                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{row.incidental_covered}</td>'
-                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(row.incidental_asserts, _ranges["inc-asserts"]))}>{row.incidental_asserts}</td>'
-                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(row.deliberate_asserts, _ranges["del-asserts"]))}>{row.deliberate_asserts}</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered")}>{row.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered")}>{row.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts")}>{row.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts")}>{row.deliberate_asserts}</td>'
                 f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
                 f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
                 f'</tr>'
@@ -674,10 +678,10 @@ class HtmlReporter:
                 f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{row.total_pct:{fmt}}%</td>'
                 f'<td data-col="delib-pct"{cell_cls("delib-pct", dpct_lvl)}>{row.deliberate_pct:{fmt}}%</td>'
                 f'<td data-col="incid-pct"{cell_cls("incid-pct", ipct_lvl)}>{row.incidental_pct:{fmt}}%</td>'
-                f'<td data-col="delib-covered"{cell_cls("delib-covered", dpct_lvl)}>{row.deliberate_covered}</td>'
-                f'<td data-col="incid-covered"{cell_cls("incid-covered", ipct_lvl)}>{row.incidental_covered}</td>'
-                f'<td data-col="inc-asserts"{cell_cls("inc-asserts", self._bucket_level(row.incidental_asserts, _ranges["inc-asserts"]))}>{row.incidental_asserts}</td>'
-                f'<td data-col="del-asserts"{cell_cls("del-asserts", self._bucket_level(row.deliberate_asserts, _ranges["del-asserts"]))}>{row.deliberate_asserts}</td>'
+                f'<td data-col="delib-covered"{cell_cls("delib-covered")}>{row.deliberate_covered}</td>'
+                f'<td data-col="incid-covered"{cell_cls("incid-covered")}>{row.incidental_covered}</td>'
+                f'<td data-col="inc-asserts"{cell_cls("inc-asserts")}>{row.incidental_asserts}</td>'
+                f'<td data-col="del-asserts"{cell_cls("del-asserts")}>{row.deliberate_asserts}</td>'
                 f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
                 f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
                 f'</tr>'
