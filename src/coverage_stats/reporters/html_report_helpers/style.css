@@ -1,0 +1,193 @@
+body {
+    font-family: monospace;
+    margin: 1rem 2rem;
+}
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+th, td {
+    border: 1px solid #ccc;
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+}
+th {
+    background: #f0f0f0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+tr.deliberate {
+    background: #c8e6c9;
+}
+tr.incidental {
+    background: #fff9c4;
+}
+tr.missed {
+    background: #ffcdd2;
+}
+tr.partial {
+    background: #ffe0b2;
+}
+td.branch-warn {
+    color: #e65100;
+    font-weight: bold;
+    white-space: nowrap;
+}
+tr.folder-row {
+    background: #e8e8e8;
+    cursor: pointer;
+    user-select: none;
+}
+tr.folder-row:hover {
+    background: #d8d8d8;
+}
+tr.folder-row td:first-child {
+    font-weight: bold;
+}
+.toggle {
+    display: inline-block;
+    width: 1em;
+    text-align: center;
+    font-style: normal;
+}
+a {
+    color: #1565c0;
+}
+.file-stats {
+    display: flex;
+    gap: 2rem;
+    align-items: baseline;
+    background: #f5f5f5;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.file-stats .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.file-stats .stat-value {
+    font-size: 1.4em;
+    font-weight: bold;
+}
+.file-stats .stat-label {
+    font-size: 0.8em;
+    color: #666;
+}
+.file-stats .missed-ranges {
+    flex: 1;
+    min-width: 200px;
+}
+.file-stats .missed-ranges .stat-label {
+    margin-bottom: 0.2em;
+}
+.file-stats .missed-ranges .stat-value {
+    font-size: 0.9em;
+    font-weight: normal;
+    color: #c62828;
+    word-break: break-all;
+}
+/* Column toggle controls */
+.col-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85em;
+    color: #555;
+    align-items: center;
+}
+.col-controls .col-controls-label {
+    font-weight: bold;
+    color: #333;
+}
+.col-controls label {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+}
+.col-controls input[type="checkbox"] {
+    cursor: pointer;
+}
+/* Column show/hide transition — fade only; width snaps cleanly */
+th[data-col], td[data-col] {
+    transition: opacity 0.2s ease;
+}
+th[data-col].col-hidden, td[data-col].col-hidden {
+    display: none;
+}
+/* Index table cell colour levels: red (0) → green (9) */
+td.lvl-0 { background: #c62828; color: #fff; }
+td.lvl-1 { background: #d84315; color: #fff; }
+td.lvl-2 { background: #e65100; color: #fff; }
+td.lvl-3 { background: #ef6c00; color: #212121; }
+td.lvl-4 { background: #f9a825; color: #212121; }
+td.lvl-5 { background: #9e9d24; color: #fff; }
+td.lvl-6 { background: #689f38; color: #fff; }
+td.lvl-7 { background: #388e3c; color: #fff; }
+td.lvl-8 { background: #2e7d32; color: #fff; }
+td.lvl-9 { background: #1b5e20; color: #fff; }
+/* Help button (? next to title) */
+.help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4em;
+    height: 1.4em;
+    border-radius: 50%;
+    border: 2px solid #1565c0;
+    background: #fff;
+    color: #1565c0;
+    font-size: 0.6em;
+    font-weight: bold;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-left: 0.4em;
+    padding: 0;
+    line-height: 1;
+}
+.help-btn:hover { background: #1565c0; color: #fff; }
+/* Help modal overlay + dialog */
+.help-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+.help-dialog {
+    background: #fff;
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+    font-family: sans-serif;
+}
+.help-dialog h2 { margin: 0 0 1rem; font-size: 1.1em; }
+.help-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    font-size: 1.1em;
+    cursor: pointer;
+    color: #666;
+    padding: 0.2em 0.4em;
+    line-height: 1;
+}
+.help-close:hover { color: #000; }
+.help-dl dt { font-weight: bold; margin-top: 0.75rem; color: #333; }
+.help-dl dd { margin: 0.15rem 0 0 0; color: #555; font-size: 0.9em; }

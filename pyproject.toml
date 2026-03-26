@@ -17,6 +17,9 @@ coverage-stats = "coverage_stats.plugin"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"coverage_stats.reporters.html_report_helpers" = ["*.css", "*.js"]
+
 [tool.mypy]
 files = ["src"]
 exclude = ["^\\.venv/"]

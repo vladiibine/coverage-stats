@@ -14,6 +14,8 @@ from coverage_stats.reporters.html import (
     render_file_stats,
     _render_tree_rows,
 )
+from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
+from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPageReporter
 from coverage_stats.reporters.report_data import (
     FileSummary,
     LineReport,
@@ -563,33 +565,33 @@ def test_index_page_has_total_pct_header():
 
 
 # ---------------------------------------------------------------------------
-# HtmlReporter._missed_ranges
+# FilePageReporter._missed_ranges
 # ---------------------------------------------------------------------------
 
 
-@covers(HtmlReporter._missed_ranges)
+@covers(FilePageReporter._missed_ranges)
 def test_missed_ranges_empty():
-    assert HtmlReporter()._missed_ranges([]) == ""
+    assert FilePageReporter()._missed_ranges([]) == ""
 
 
-@covers(HtmlReporter._missed_ranges)
+@covers(FilePageReporter._missed_ranges)
 def test_missed_ranges_single():
-    assert HtmlReporter()._missed_ranges([7]) == "7"
+    assert FilePageReporter()._missed_ranges([7]) == "7"
 
 
-@covers(HtmlReporter._missed_ranges)
+@covers(FilePageReporter._missed_ranges)
 def test_missed_ranges_consecutive_collapsed_to_range():
-    assert HtmlReporter()._missed_ranges([3, 4, 5]) == "3-5"
+    assert FilePageReporter()._missed_ranges([3, 4, 5]) == "3-5"
 
 
-@covers(HtmlReporter._missed_ranges)
+@covers(FilePageReporter._missed_ranges)
 def test_missed_ranges_non_consecutive():
-    assert HtmlReporter()._missed_ranges([1, 3, 5]) == "1, 3, 5"
+    assert FilePageReporter()._missed_ranges([1, 3, 5]) == "1, 3, 5"
 
 
-@covers(HtmlReporter._missed_ranges)
+@covers(FilePageReporter._missed_ranges)
 def test_missed_ranges_mixed():
-    assert HtmlReporter()._missed_ranges([1, 2, 5, 6, 7, 10]) == "1-2, 5-7, 10"
+    assert FilePageReporter()._missed_ranges([1, 2, 5, 6, 7, 10]) == "1-2, 5-7, 10"
 
 
 # ---------------------------------------------------------------------------
@@ -674,10 +676,20 @@ def test_css_override_on_subclass_replaces_default():
 
 @covers(HtmlReporter.write)
 def test_subclass_render_line_override_is_called(tmp_path):
-    """write() must call self.render_line(), not the module-level shim."""
-    class MarkedReporter(HtmlReporter):
+    """write() must use the FilePageReporter returned by get_file_reporter().
+
+    The canonical extension point for render_line is to subclass FilePageReporter
+    and override get_file_reporter() on HtmlReporter.
+    """
+    from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
+
+    class MarkedFileReporter(FilePageReporter):
         def render_line(self, lineno, source_text, ld, executable, partial=False, _ranges=None) -> str:
             return f'<tr class="custom-row"><td>{lineno}</td></tr>'
+
+    class MarkedReporter(HtmlReporter):
+        def get_file_reporter(self) -> FilePageReporter:
+            return MarkedFileReporter(precision=self.precision)
 
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -694,10 +706,18 @@ def test_subclass_render_line_override_is_called(tmp_path):
 
 @covers(HtmlReporter.write)
 def test_subclass_render_index_page_override_is_called(tmp_path):
-    """write() must call self.render_index_page(), not the module-level shim."""
-    class BrandedReporter(HtmlReporter):
+    """write() must use the IndexPageReporter returned by get_index_reporter().
+
+    The canonical extension point for render_index_page is to subclass IndexPageReporter
+    and override get_index_reporter() on HtmlReporter.
+    """
+    class BrandedIndexReporter(IndexPageReporter):
         def render_index_page(self, rows_html: str) -> str:
             return f"<html><body><h1>My Company Coverage</h1>{rows_html}</body></html>"
+
+    class BrandedReporter(HtmlReporter):
+        def get_index_reporter(self) -> IndexPageReporter:
+            return BrandedIndexReporter(precision=self.precision)
 
     store = SessionStore()
     config = make_config(tmp_path)
@@ -711,10 +731,18 @@ def test_subclass_render_index_page_override_is_called(tmp_path):
 
 @covers(HtmlReporter.write)
 def test_subclass_render_file_stats_override_is_called(tmp_path):
-    """_write_file_page() must call self.render_file_stats()."""
-    class NoStatsReporter(HtmlReporter):
+    """write() must use the FilePageReporter returned by get_file_reporter().
+
+    The canonical extension point for render_file_stats is to subclass FilePageReporter
+    and override get_file_reporter() on HtmlReporter.
+    """
+    class NoStatsFileReporter(FilePageReporter):
         def render_file_stats(self, *args, **kwargs) -> str:
             return '<div id="custom-stats"></div>'
+
+    class NoStatsReporter(HtmlReporter):
+        def get_file_reporter(self) -> FilePageReporter:
+            return NoStatsFileReporter(precision=self.precision)
 
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -731,10 +759,18 @@ def test_subclass_render_file_stats_override_is_called(tmp_path):
 
 @covers(HtmlReporter.write)
 def test_subclass_render_tree_rows_override_is_called(tmp_path):
-    """write() must call self._render_tree_rows(), so a subclass can customise the index table."""
-    class FlatReporter(HtmlReporter):
-        def _render_tree_rows(self, node, depth, parent_id) -> list[str]:
+    """write() must use the IndexPageReporter returned by get_index_reporter().
+
+    The canonical extension point for _render_tree_rows is to subclass IndexPageReporter
+    and override get_index_reporter() on HtmlReporter.
+    """
+    class FlatIndexReporter(IndexPageReporter):
+        def _render_tree_rows(self, node, depth, parent_id, _ranges=None) -> list[str]:
             return ['<tr class="flat-row"><td>flat</td></tr>']
+
+    class FlatReporter(HtmlReporter):
+        def get_index_reporter(self) -> IndexPageReporter:
+            return FlatIndexReporter(precision=self.precision)
 
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -1049,13 +1085,13 @@ def _make_lr(
     )
 
 
-@covers(HtmlReporter._collect_file_ranges)
+@covers(FilePageReporter._collect_file_ranges)
 def test_collect_file_ranges_finds_max_values():
     lines = [
         _make_lr(ie=3, de=7, ia=1, da=5, it=2, dt=4),
         _make_lr(ie=10, de=2, ia=8, da=3, it=6, dt=9),
     ]
-    reporter = HtmlReporter()
+    reporter = FilePageReporter()
     ranges = reporter._collect_file_ranges(lines)
     assert ranges["inc-exec"] == 10
     assert ranges["del-exec"] == 7
@@ -1065,23 +1101,23 @@ def test_collect_file_ranges_finds_max_values():
     assert ranges["del-tests"] == 9
 
 
-@covers(HtmlReporter._collect_file_ranges)
+@covers(FilePageReporter._collect_file_ranges)
 def test_collect_file_ranges_ignores_non_executable_lines():
     """Non-executable lines (comments, blanks) must not influence the range maxima."""
     lines = [
         _make_lr(executable=False, ie=999, de=999, ia=999, da=999, it=999, dt=999),
         _make_lr(executable=True, ie=5, de=5, ia=5, da=5, it=5, dt=5),
     ]
-    reporter = HtmlReporter()
+    reporter = FilePageReporter()
     ranges = reporter._collect_file_ranges(lines)
     assert ranges["inc-exec"] == 5
     assert ranges["del-exec"] == 5
 
 
-@covers(HtmlReporter._collect_file_ranges)
+@covers(FilePageReporter._collect_file_ranges)
 def test_collect_file_ranges_all_non_executable_returns_zeros():
     lines = [_make_lr(executable=False, ie=10, de=10)]
-    ranges = HtmlReporter()._collect_file_ranges(lines)
+    ranges = FilePageReporter()._collect_file_ranges(lines)
     assert all(v == 0.0 for v in ranges.values())
 
 
@@ -1151,7 +1187,7 @@ def test_render_line_missed_executable_with_ranges_gets_lvl_0():
     assert html.count('class="lvl-0"') == 6
 
 
-@covers(HtmlReporter._write_file_page)
+@covers(FilePageReporter._write_file_page)
 def test_write_html_file_page_contains_color_classes(tmp_path):
     """write() must produce file pages with lvl-N classes when lines have non-zero values."""
     store = SessionStore()
