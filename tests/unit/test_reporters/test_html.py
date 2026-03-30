@@ -16,6 +16,7 @@ from coverage_stats.reporters.html import (
 )
 from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
 from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPageReporter
+from coverage_stats.reporters.base import Reporter
 from coverage_stats.reporters.report_data import (
     FileSummary,
     LineReport,
@@ -394,6 +395,26 @@ def test_output_dir_created_if_missing(tmp_path):
     assert (out_dir / "index.html").exists()
 
 
+@covers(HtmlReporter)
+def test_html_reporter_implements_reporter_protocol():
+    """HtmlReporter must satisfy the Reporter protocol."""
+    import inspect
+
+    reporter = HtmlReporter()
+
+    # Runtime structural check (requires @runtime_checkable on Reporter)
+    assert isinstance(reporter, Reporter)
+
+    # write() must exist and be callable
+    assert callable(reporter.write)
+
+    # Signature must match the protocol: (self, report: CoverageReport, output_dir: Path) -> None
+    sig = inspect.signature(reporter.write)
+    params = list(sig.parameters)
+    assert params == ["report", "output_dir"]
+    assert sig.return_annotation in (None, "None")
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for helper functions
 # ---------------------------------------------------------------------------
@@ -619,54 +640,54 @@ def test_build_folder_tree_file_at_root_level():
 # ---------------------------------------------------------------------------
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_css_class_attribute_appears_in_index():
-    result = HtmlReporter().render_index_page("")
-    assert HtmlReporter.CSS in result
+    result = IndexPageReporter().render_index_page("")
+    assert IndexPageReporter.CSS in result
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_js_class_attribute_appears_in_index():
-    result = HtmlReporter().render_index_page("")
-    assert HtmlReporter.JS in result
+    result = IndexPageReporter().render_index_page("")
+    assert IndexPageReporter.JS in result
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_extra_css_empty_by_default():
-    assert HtmlReporter.EXTRA_CSS == ""
+    assert IndexPageReporter.EXTRA_CSS == ""
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_extra_js_empty_by_default():
-    assert HtmlReporter.EXTRA_JS == ""
+    assert IndexPageReporter.EXTRA_JS == ""
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_extra_css_injected_when_set_on_subclass():
-    class StyledReporter(HtmlReporter):
+    class StyledReporter(IndexPageReporter):
         EXTRA_CSS = "body { background: black; }"
 
     result = StyledReporter().render_index_page("")
     assert "background: black" in result
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_extra_js_injected_when_set_on_subclass():
-    class TrackedReporter(HtmlReporter):
+    class TrackedReporter(IndexPageReporter):
         EXTRA_JS = "console.log('loaded');"
 
     result = TrackedReporter().render_index_page("")
     assert "console.log('loaded');" in result
 
 
-@covers(HtmlReporter.render_index_page)
+@covers(IndexPageReporter.render_index_page)
 def test_css_override_on_subclass_replaces_default():
-    class MinimalReporter(HtmlReporter):
+    class MinimalReporter(IndexPageReporter):
         CSS = "body { margin: 0; }"
 
     result = MinimalReporter().render_index_page("")
     assert "body { margin: 0; }" in result
-    assert HtmlReporter.CSS not in result
+    assert IndexPageReporter.CSS not in result
 
 
 # ---------------------------------------------------------------------------
@@ -832,7 +853,7 @@ def test_index_checkboxes_reflect_python_defaults():
     """Checkboxes must match INDEX_COLUMNS: True → checked, False → unchecked."""
     import re
     html = render_index_page("")
-    for col_id, visible in HtmlReporter.INDEX_COLUMNS.items():
+    for col_id, visible in IndexPageReporter.INDEX_COLUMNS.items():
         cb = re.search(rf'<input[^>]+value="{col_id}"[^>]*>', html)
         assert cb, f"checkbox for '{col_id}' not found"
         has_checked = bool(re.search(r'\schecked\s*>', cb.group(0)))
@@ -863,7 +884,7 @@ def test_index_col_hidden_matches_python_defaults():
     """True columns must have no col-hidden; False columns must carry col-hidden."""
     html = render_index_page("")
     body = html[html.index("<body>"):]
-    for col_id, visible in HtmlReporter.INDEX_COLUMNS.items():
+    for col_id, visible in IndexPageReporter.INDEX_COLUMNS.items():
         if visible:
             assert f'data-col="{col_id}" class="col-hidden"' not in body, (
                 f"column '{col_id}' is True but has col-hidden"
@@ -956,8 +977,8 @@ def test_col_controls_checkbox_values_match_data_col_attributes():
 @covers(HtmlReporter.render_index_page)
 def test_index_column_gets_col_hidden_when_python_config_is_false():
     """Setting INDEX_COLUMNS[col] = False must bake col-hidden into the th and td cells."""
-    class _R(HtmlReporter):
-        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": False}
+    class _R(IndexPageReporter):
+        INDEX_COLUMNS = {**IndexPageReporter.INDEX_COLUMNS, "stmts": False}
 
     reporter = _R()
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
@@ -972,8 +993,8 @@ def test_index_column_gets_col_hidden_when_python_config_is_false():
 @covers(HtmlReporter.render_index_page)
 def test_index_column_gets_col_hidden_when_python_config_is_true():
     """Setting INDEX_COLUMNS[col] = True must NOT add col-hidden to that column's cells."""
-    class _R(HtmlReporter):
-        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": True}
+    class _R(IndexPageReporter):
+        INDEX_COLUMNS = {**IndexPageReporter.INDEX_COLUMNS, "stmts": True}
 
     reporter = _R()
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
@@ -994,8 +1015,8 @@ def test_index_checkbox_unchecked_when_python_config_is_false():
     """Setting INDEX_COLUMNS[col] = False must render the checkbox without 'checked'."""
     import re
 
-    class _R(HtmlReporter):
-        INDEX_COLUMNS = {**HtmlReporter.INDEX_COLUMNS, "stmts": False}
+    class _R(IndexPageReporter):
+        INDEX_COLUMNS = {**IndexPageReporter.INDEX_COLUMNS, "stmts": False}
 
     html = _R().render_index_page("")
     stmts_cb = re.search(r'<input[^>]+value="stmts"[^>]*>', html)
@@ -1018,8 +1039,8 @@ def test_file_column_gets_col_hidden_when_python_config_is_false():
     """Setting FILE_COLUMNS[col] = False must bake col-hidden into the th and the line td cells."""
     from coverage_stats.store import LineData
 
-    class _R(HtmlReporter):
-        FILE_COLUMNS = {**HtmlReporter.FILE_COLUMNS, "inc-exec": False}
+    class _R(FilePageReporter):
+        FILE_COLUMNS = {**FilePageReporter.FILE_COLUMNS, "inc-exec": False}
 
     reporter = _R()
     ld = LineData(incidental_executions=1, deliberate_executions=2,
@@ -1039,8 +1060,8 @@ def test_file_checkbox_unchecked_when_python_config_is_false():
     """Setting FILE_COLUMNS[col] = False must render the checkbox without 'checked'."""
     import re
 
-    class _R(HtmlReporter):
-        FILE_COLUMNS = {**HtmlReporter.FILE_COLUMNS, "inc-exec": False}
+    class _R(FilePageReporter):
+        FILE_COLUMNS = {**FilePageReporter.FILE_COLUMNS, "inc-exec": False}
 
     html = _R().render_file_page("f.py", "", "")
     inc_exec_cb = re.search(r'<input[^>]+value="inc-exec"[^>]*>', html)

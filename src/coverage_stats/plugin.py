@@ -170,6 +170,7 @@ class CoverageStatsPlugin:
         self._orig_read_pyc: object = None  # stored during collection to force rewrite
         self._report_builder_cls: type = object  # replaced in pytest_configure
 
+    @pytest.hookimpl(trylast=True)
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         """Start the line tracer now that all plugins have finished configuring.
 
@@ -177,6 +178,13 @@ class CoverageStatsPlugin:
         the heavyweight module imports that other plugins trigger during their
         own pytest_configure hooks (e.g. _pytest.debugging loading pdb + asyncio),
         which otherwise accounts for several seconds of pure tracing overhead.
+
+        trylast=True ensures we install our sys.settrace callback after every
+        other plugin (notably coverage.py / pytest-cov) has installed its own
+        tracer.  That puts us on top of the chain: we receive all frame events
+        first and forward them to whatever was installed before us.  Without
+        this, coverage.py's C-extension tracer can end up on top and may not
+        call our Python-level tracer back, leaving the store permanently empty.
         """
         if not self._enabled:
             return

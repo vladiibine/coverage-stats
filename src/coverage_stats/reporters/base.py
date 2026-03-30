@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from coverage_stats.reporters.report_data import CoverageReport
 
 
+@runtime_checkable
 class Reporter(Protocol):
     """Protocol for coverage-stats reporters.
 

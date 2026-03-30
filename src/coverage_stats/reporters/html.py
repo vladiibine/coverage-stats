@@ -4,7 +4,6 @@ from pathlib import Path
 
 from coverage_stats.store import LineData
 from coverage_stats.reporters.report_data import CoverageReport, FolderNode
-from coverage_stats.reporters.html_report_helpers.mixins import HtmlReporterMixin
 from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
 from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPageReporter
 
