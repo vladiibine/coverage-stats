@@ -8,7 +8,15 @@ alongside standard `coverage.py`, so you can compare their HTML outputs side by 
 From this directory, install dependencies with `uv`:
 
 ```bash
+# this will create a .venv and install this project's dependencies inside
 uv sync --extra dev
+
+# ...or activate any other venvs, and run `uv sync --extra dev --active` inside, to install the dependencies in those venvs
+```
+
+```bash
+# ALTERNATIVELY, use your desired version of python
+uv venv --python 3.10 .venv-3.10
 ```
 
 This installs `pytest`, `coverage`, `pytest-cov`, `pytest-xdist`, and the
