@@ -28,8 +28,11 @@ The `coverage-stats` plugin is activated with `--coverage-stats` and produces it
 HTML report in `coverage-stats-report/`:
 
 ```bash
-uv run pytest --coverage-stats --coverage-stats-precision 6 --coverage-stats-format html \
-              --cov=src --cov-branch --cov-report=html:html-cov
+# use the default env
+uv run pytest --coverage-stats --coverage-stats-precision 6 --coverage-stats-format html --cov=src --cov-branch --cov-report=html:html-cov
+
+# or use another env
+UV_PROJECT_ENVIRONMENT=.venv-311 uv run pytest --coverage-stats --coverage-stats-precision 6 --coverage-stats-format html --cov=src --cov-branch --cov-report=html:html-cov
 ```
 
 Open `coverage-stats-report/index.html` in a browser to see the result.
