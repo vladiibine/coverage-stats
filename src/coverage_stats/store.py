@@ -45,6 +45,18 @@ class SessionStore:
             for (path, lineno), ld in self._data.items()
         }
 
+    def lines_by_file(self) -> dict[str, list[int]]:
+        """Return executed line numbers grouped by file path.
+
+        Only includes lines that were actually executed (non-zero execution count).
+        The format matches what coverage.CoverageData.add_lines() expects.
+        """
+        result: dict[str, list[int]] = {}
+        for (path, lineno), ld in self._data.items():
+            if ld.incidental_executions > 0 or ld.deliberate_executions > 0:
+                result.setdefault(path, []).append(lineno)
+        return result
+
     @classmethod
     def from_dict(cls, data: dict[str, list[int]]) -> SessionStore:
         store = cls()

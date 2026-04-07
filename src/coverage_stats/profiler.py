@@ -16,6 +16,24 @@ if TYPE_CHECKING:
 _TraceFunc = Callable[[types.FrameType, str, Any], Any]
 
 
+def _is_c_extension_tracer(func: Any) -> bool:
+    """Return True if *func* is a C extension callable.
+
+    C extension trace functions (e.g. coverage.py's CTracer) have a
+    self-healing behaviour: when called directly from Python code (not via
+    Python's internal C-level trace dispatch) they call sys.settrace(self) as
+    a side effect, overwriting whatever tracer was on top of them.  Calling
+    such a function from within our own trace dispatch therefore starts an
+    endless reinstall battle.  We detect them by checking that they are
+    callable but are not plain Python functions or bound methods.
+    """
+    if func is None:
+        return False
+    if isinstance(func, (types.FunctionType, types.MethodType)):
+        return False
+    return callable(func)
+
+
 @dataclass
 class ProfilerContext:
     current_test_item: pytest.Item | None = None
@@ -53,18 +71,137 @@ class ProfilerContext:
         self.current_test_lines.clear()
 
 
+class MonitoringLineTracer:
+    """Line tracer using sys.monitoring (Python 3.12+).
+
+    Registers for LINE events via sys.monitoring, which avoids the sys.settrace
+    single-slot constraint entirely.  Multiple monitoring tools can coexist
+    without chaining or displacement — coverage.py registers via COVERAGE_ID (1)
+    while we claim a separate tool ID.
+
+    start() is idempotent: if our tool ID is already registered, it returns
+    immediately without re-registering.
+    """
+
+    def __init__(self, context: ProfilerContext, store: SessionStore) -> None:
+        self._context = context
+        self._store = store
+        self._tool_id: int | None = None
+        self._scope_cache: dict[str, tuple[str, bool]] = {}
+
+    def start(self) -> None:
+        if self._tool_id is not None:
+            return  # already running — idempotent, no displacement possible
+        monitoring = getattr(sys, "monitoring", None)
+        if monitoring is None:
+            warnings.warn("coverage-stats: sys.monitoring not available (requires Python 3.12+)")
+            return
+        # Tool IDs 0-3 are reserved for standard tools (debugger, coverage,
+        # profiler, optimizer).  We try IDs 4 and 5 first, then fall back.
+        for tool_id in (4, 5, 3, 2):
+            try:
+                monitoring.use_tool_id(tool_id, "coverage-stats")
+                self._tool_id = tool_id
+                break
+            except ValueError:
+                continue
+        if self._tool_id is None:
+            warnings.warn("coverage-stats: no sys.monitoring tool ID available, line tracing disabled")
+            return
+        monitoring.set_events(self._tool_id, monitoring.events.LINE)
+        monitoring.register_callback(self._tool_id, monitoring.events.LINE, self._monitoring_line)
+
+    def stop(self) -> None:
+        if self._tool_id is None:
+            return
+        monitoring = getattr(sys, "monitoring", None)
+        if monitoring is None:
+            return
+        monitoring.set_events(self._tool_id, monitoring.events.NO_EVENTS)
+        monitoring.register_callback(self._tool_id, monitoring.events.LINE, None)
+        monitoring.free_tool_id(self._tool_id)
+        self._tool_id = None
+
+    def _in_scope(self, filename: str) -> bool:
+        if self._context.source_dirs:
+            return any(
+                filename == d or filename.startswith(d + "/")
+                for d in self._context.source_dirs
+            )
+        prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
+        return "site-packages" not in filename and not filename.startswith(prefix)
+
+    def _monitoring_line(self, code: types.CodeType, line_number: int) -> object:
+        """Callback invoked by sys.monitoring for every LINE event.
+
+        Returns sys.monitoring.DISABLE for out-of-scope code objects so Python
+        stops calling us for every line in those files — same optimisation that
+        LineTracer achieves by returning None from the global trace function.
+        """
+        raw = code.co_filename
+        cached = self._scope_cache.get(raw)
+        if cached is None:
+            filename = str(Path(raw).resolve())
+            in_scope = self._in_scope(filename)
+            self._scope_cache[raw] = (filename, in_scope)
+        else:
+            filename, in_scope = cached
+
+        if not in_scope:
+            return sys.monitoring.DISABLE  # type: ignore[attr-defined]
+
+        ctx = self._context
+        key = (filename, line_number)
+        if ctx.current_phase == "call" and ctx.current_test_item is not None:
+            ld = self._store.get_or_create(key)
+            covers_lines: frozenset[tuple[str, int]] = getattr(
+                ctx.current_test_item, "_covers_lines", frozenset()
+            )
+            if key in covers_lines:
+                ld.deliberate_executions += 1
+            else:
+                ld.incidental_executions += 1
+            ctx.current_test_lines.add(key)
+        elif ctx.current_phase is None:
+            ctx.pre_test_lines.add(key)
+        return None
+
+
+# TODO - document that this tracer uses sys.settrace, whereas the other one uses sys.monitoring
+#  Also, rename the tracers more appropriately in line with their roles
 class LineTracer:
     def __init__(self, context: ProfilerContext, store: SessionStore) -> None:
         self._context = context
         self._store = store
         self._prev_trace: _TraceFunc | None = None
+        # When the previous tracer is a C extension (e.g. coverage.py's CTracer
+        # on Python < 3.12), chaining to it is unsafe: calling it directly from
+        # Python code triggers its self-healing behaviour (it calls
+        # sys.settrace(self) as a side effect), creating an endless reinstall
+        # battle that prevents both tracers from working.  We detect this case
+        # once in start() and skip chaining for the rest of the session.
+        self._skip_prev_trace: bool = False
+        # The bound-method object actually passed to sys.settrace, stored so we
+        # can detect whether we're still on top without creating a new bound
+        # method via self._trace (which would fail an `is` comparison).
+        self._installed_fn: _TraceFunc | None = None
         # Cache raw co_filename → (resolved_str, in_scope) so _trace pays the
         # Path.resolve() + _in_scope cost at most once per unique source file.
         self._scope_cache: dict[str, tuple[str, bool]] = {}
 
     def start(self) -> None:
-        self._prev_trace = sys.gettrace()
-        sys.settrace(self._trace)
+        current = sys.gettrace()
+        if self._installed_fn is not None and current is self._installed_fn:
+            # Already on top and not displaced by another tracer — nothing to do.
+            # This happens on Python 3.12+ where coverage.py uses sys.monitoring
+            # and never calls sys.settrace, so our first install from
+            # pytest_sessionstart is still in place when pytest_collection_finish
+            # calls start() again.
+            return
+        self._prev_trace = current
+        self._skip_prev_trace = _is_c_extension_tracer(self._prev_trace)
+        self._installed_fn = self._trace
+        sys.settrace(self._installed_fn)
 
     def stop(self) -> None:
         sys.settrace(self._prev_trace)
@@ -98,16 +235,17 @@ class LineTracer:
             filename, in_scope = cached
 
         prev_local: _TraceFunc | None = None
-        try:
-            if self._prev_trace is not None:
-                prev_local = self._prev_trace(frame, event, arg)
-        except Exception as exc:
-            warnings.warn(f"coverage-stats: tracer error: {exc}")
+        if not self._skip_prev_trace:
+            try:
+                if self._prev_trace is not None:
+                    prev_local = self._prev_trace(frame, event, arg)
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: tracer error: {exc}")
 
         if not in_scope:
             # Out-of-scope frame: don't install our line handler.
-            # If there's a previous tracer (e.g. coverage.py), return a thin
-            # wrapper that only forwards to it so coverage.py keeps working.
+            # If there's a previous tracer (e.g. a Python-level debugger), return
+            # a thin wrapper that only forwards to it so it keeps working.
             if prev_local is None:
                 return None  # type: ignore[return-value]
             return self._make_forwarding_trace(prev_local)
@@ -134,8 +272,8 @@ class LineTracer:
         """Return a per-frame local trace function for an in-scope frame.
 
         The filename is already resolved and known to be in scope — no repeated
-        path work on every line event.  prev_local is coverage.py's local tracer
-        for this frame (if any); we chain it so coverage.py keeps working.
+        path work on every line event.  prev_local is a Python-level local tracer
+        for this frame (if any); we chain it so other tools keep working.
         """
         current_prev = prev_local
 
