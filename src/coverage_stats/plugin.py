@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 
 _DEFAULT_STORE = "coverage_stats.store.SessionStore"
 _DEFAULT_PROFILER_CONTEXT = "coverage_stats.profiler.ProfilerContext"
-_DEFAULT_LINE_TRACER = "coverage_stats.profiler.LineTracer"
+_DEFAULT_LINE_TRACER = (
+    "coverage_stats.profiler.MonitoringLineTracer"
+    if sys.version_info >= (3, 12)
+    else "coverage_stats.profiler.LineTracer"
+)
 _DEFAULT_REPORT_BUILDER = "coverage_stats.reporters.report_data.DefaultReportBuilder"
 
 
@@ -564,17 +568,6 @@ def pytest_configure(config: pytest.Config) -> None:
     ctx_cls = _load_profiler_context_class(ctx_path)
     tracer_path = config.getoption("--coverage-stats-line-tracer") or config.getini("coverage_stats_line_tracer") or _DEFAULT_LINE_TRACER
     tracer_cls: type = _load_line_tracer_class(tracer_path)
-    # On Python 3.12+, sys.monitoring lets multiple tools register independently
-    # without any sys.settrace chaining or displacement issues.  Auto-select the
-    # monitoring-based tracer unless the user has explicitly chosen a custom one.
-    if sys.version_info >= (3, 12) and tracer_path == _DEFAULT_LINE_TRACER:
-        from coverage_stats.profiler import MonitoringLineTracer
-        # TODO - choosing MonitoringLineTracer here defeats the purpose of
-        #  having the _load_line_tracer_class in the first place. It is important for the user to
-        #  be able to provide their own line tracer, so wherefore replacing the tracer class
-        #  here is not fine. This logic should be moved such that the _DEFAULT_LINE_TRACER is set to
-        #  MonitoringLineTracer on python >= 3.12
-        tracer_cls = MonitoringLineTracer
     builder_path = config.getoption("--coverage-stats-report-builder") or config.getini("coverage_stats_report_builder") or _DEFAULT_REPORT_BUILDER
     report_builder_cls = _load_report_builder_class(builder_path)
 
