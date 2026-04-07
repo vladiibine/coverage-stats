@@ -17,3 +17,5 @@ html-cov/
 vwh_*
 .nox/
 coverage-stats-report/
+test-interop-stats/
+test-interop-cov/

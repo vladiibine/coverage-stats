@@ -9,7 +9,7 @@ requires-python = ">=3.9"
 dependencies = ["pytest"]
 
 [project.optional-dependencies]
-dev = ["ruff", "mypy", "nox"]
+dev = ["ruff", "mypy", "nox", "coverage[toml]", "pytest-cov", "pytest-xdist"]
 
 [project.entry-points."pytest11"]
 coverage-stats = "coverage_stats.plugin"
