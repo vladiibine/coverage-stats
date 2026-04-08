@@ -27,8 +27,10 @@ def make_tracer(source_dirs=None, phase="call", test_item=None, covers_lines=Non
     store = SessionStore()
     tracer = LineTracer(ctx, store)
     if test_item is None:
-        item = types.SimpleNamespace(_covers_lines=frozenset() if covers_lines is None else covers_lines)
+        resolved = frozenset() if covers_lines is None else covers_lines
+        item = types.SimpleNamespace(_covers_lines=resolved)
         ctx.current_test_item = item
+        ctx.current_covers_lines = resolved  # keep in sync with new field
     return tracer, ctx, store
 
 
@@ -86,6 +88,7 @@ def test_trace_accumulates_deliberate_execution():
     key = (THIS_FILE, 42)
     item = types.SimpleNamespace(_covers_lines=frozenset([key]))
     ctx.current_test_item = item
+    ctx.current_covers_lines = frozenset([key])
 
     local = tracer._trace(frame, "call", None)
     local(frame, "line", None)

@@ -35,7 +35,7 @@ def lint(session: nox.Session) -> None:
 
 
 @nox.session
-def import_lint(session: nox.Session) -> None:
+def imports(session: nox.Session) -> None:
     """Check import layering with import-linter."""
     session.install(".[dev]")
     session.run("lint-imports")

@@ -111,6 +111,7 @@ def test_distribute_asserts_mixed_deliberate_and_incidental():
         current_test_item=make_item(covers_lines=frozenset([deliberate_key])),
         current_assert_count=1,
     )
+    ctx.current_covers_lines = frozenset([deliberate_key])
     ctx.current_test_lines = {deliberate_key, incidental_key}
 
     ctx.distribute_asserts(store)
@@ -190,6 +191,7 @@ def test_distribute_asserts_records_deliberate_test_count():
         current_test_item=make_item(covers_lines=frozenset([deliberate_key])),
         current_assert_count=0,
     )
+    ctx.current_covers_lines = frozenset([deliberate_key])
     ctx.current_test_lines = {deliberate_key, incidental_key}
 
     ctx.distribute_asserts(store)

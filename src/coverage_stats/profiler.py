@@ -45,6 +45,10 @@ class ProfilerContext:
     # Populated when current_phase is None so that module-level statements
     # (including bodies of functions called at import time) are recorded.
     pre_test_lines: set[tuple[str, int]] = field(default_factory=set)
+    # Resolved @covers lines for the current test, set once in pytest_runtest_setup
+    # and read on every line event.  Storing it here avoids a getattr() on every
+    # line event in the tracer hot path.
+    current_covers_lines: frozenset[tuple[str, int]] = field(default_factory=frozenset)
 
     def record_assertion(self) -> None:
         """Increment the assert counter when an assertion passes during the call phase."""
@@ -53,9 +57,7 @@ class ProfilerContext:
 
     def distribute_asserts(self, store: SessionStore) -> None:
         """Distribute accumulated assert count to every line executed this test, then reset."""
-        covers_lines: frozenset[tuple[str, int]] = getattr(
-            self.current_test_item, "_covers_lines", frozenset()
-        )
+        covers_lines = self.current_covers_lines
         count = self.current_assert_count
         for key in self.current_test_lines:
             ld = store.get_or_create(key)
@@ -154,10 +156,7 @@ class MonitoringLineTracer:
         key = (filename, line_number)
         if ctx.current_phase == "call" and ctx.current_test_item is not None:
             ld = self._store.get_or_create(key)
-            covers_lines: frozenset[tuple[str, int]] = getattr(
-                ctx.current_test_item, "_covers_lines", frozenset()
-            )
-            if key in covers_lines:
+            if key in ctx.current_covers_lines:
                 ld.deliberate_executions += 1
             else:
                 ld.incidental_executions += 1
@@ -274,7 +273,14 @@ class LineTracer:
         The filename is already resolved and known to be in scope — no repeated
         path work on every line event.  prev_local is a Python-level local tracer
         for this frame (if any); we chain it so other tools keep working.
+
+        ctx and store are captured once as closure locals so the hot path avoids
+        repeated LOAD_ATTR on self.  Python calls local trace functions only for
+        "line", "return", and "exception" events; we handle "line" by position
+        (frame.f_lineno) and let the other two pass through cheaply.
         """
+        ctx = self._context  # captured once — avoids LOAD_ATTR on self per call
+        store = self._store  # captured once — avoids LOAD_ATTR on self per call
         current_prev = prev_local
 
         def local(frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
@@ -283,15 +289,11 @@ class LineTracer:
                 if current_prev is not None:
                     current_prev = current_prev(frame, event, arg)
                 if event == "line":
-                    ctx = self._context
                     lineno = frame.f_lineno
                     key = (filename, lineno)
                     if ctx.current_phase == "call" and ctx.current_test_item is not None:
-                        ld = self._store.get_or_create(key)
-                        covers_lines: frozenset[tuple[str, int]] = getattr(
-                            ctx.current_test_item, "_covers_lines", frozenset()
-                        )
-                        if key in covers_lines:
+                        ld = store.get_or_create(key)
+                        if key in ctx.current_covers_lines:
                             ld.deliberate_executions += 1
                         else:
                             ld.incidental_executions += 1

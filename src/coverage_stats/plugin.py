@@ -290,6 +290,9 @@ class CoverageStatsPlugin:
             resolve_covers(item)
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
         ctx.current_test_item = item
+        # Cache covers_lines on ctx so the tracer hot path reads a direct field
+        # instead of calling getattr(item, "_covers_lines", frozenset()) per line.
+        ctx.current_covers_lines = getattr(item, "_covers_lines", frozenset())
         ctx.current_phase = "setup"
         ctx.current_test_lines.clear()
         ctx.current_assert_count = 0
@@ -312,6 +315,7 @@ class CoverageStatsPlugin:
         # Reset after teardown completes
         ctx.current_phase = None
         ctx.current_test_item = None
+        ctx.current_covers_lines = frozenset()
 
     def pytest_assertion_pass(self, item: pytest.Item, lineno: int, orig: str, expl: str) -> None:
         """Increment the assert counter each time an assertion passes during 'call'."""
