@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from coverage_stats.store import SessionStore
-from coverage_stats.plugin import CoverageStatsPlugin
+from coverage_stats.plugin import CoverageStatsPlugin, CoverageStatsCustomization
 
 
 def make_config(rootdir: Path, fmt: str, out_dir: str) -> SimpleNamespace:
@@ -13,10 +13,12 @@ def make_config(rootdir: Path, fmt: str, out_dir: str) -> SimpleNamespace:
         getoption=lambda opt, **kw: {
             "--coverage-stats-format": fmt,
             "--coverage-stats-output": str(out_dir),
+            "--coverage-stats-reporter": None,
         }.get(opt),
         getini=lambda key: {
             "coverage_stats_format": "",
             "coverage_stats_output_dir": "coverage-stats-report",
+            "coverage_stats_reporters": "",
         }.get(key, ""),
     )
 
@@ -27,12 +29,11 @@ class _NoopTracer:
 
 
 def make_plugin(store: SessionStore) -> CoverageStatsPlugin:
-    from coverage_stats.reporters.report_data import DefaultReportBuilder
     plugin = CoverageStatsPlugin()
     plugin._enabled = True
     plugin._store = store
     plugin._tracer = _NoopTracer()
-    plugin._report_builder_cls = DefaultReportBuilder
+    plugin._customization = CoverageStatsCustomization()
     return plugin
 
 

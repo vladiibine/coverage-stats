@@ -10,67 +10,86 @@ import pytest
 
 if TYPE_CHECKING:
     from coverage_stats.profiler import LineTracer, ProfilerContext
+    from coverage_stats.reporters.base import Reporter
+    from coverage_stats.reporters.report_data import (
+        CoveragePyInteropProto,
+        ReportBuilder,
+    )
     from coverage_stats.store import SessionStore
 
-_DEFAULT_STORE = "coverage_stats.store.SessionStore"
-_DEFAULT_PROFILER_CONTEXT = "coverage_stats.profiler.ProfilerContext"
-_DEFAULT_LINE_TRACER = (
-    "coverage_stats.profiler.MonitoringLineTracer"
-    if sys.version_info >= (3, 12)
-    else "coverage_stats.profiler.LineTracer"
-)
-_DEFAULT_REPORT_BUILDER = "coverage_stats.reporters.report_data.DefaultReportBuilder"
-_DEFAULT_COVERAGE_PY_INTEROP = "coverage_stats.reporters.report_data.CoveragePyInterop"
+_DEFAULT_CUSTOMIZATION = "coverage_stats.plugin.CoverageStatsCustomization"
 
 
-def _load_store_class(dotted_path: str) -> type[SessionStore]:
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid store class path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)  # type: ignore[no-any-return]
+class CoverageStatsCustomization:
+    """Single entry point for all class-level customizations.
 
+    Each ``get_*`` method loads its class from the corresponding dotted-path
+    constant and returns a fresh instance.  Subclass and override the
+    constants or the getter methods to swap in custom implementations.
 
-def _load_profiler_context_class(dotted_path: str) -> type[ProfilerContext]:
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid profiler context class path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)  # type: ignore[no-any-return]
+    The ``precision`` parameter (passed at construction) is forwarded to
+    reporters that accept it.
+    """
 
+    store = "coverage_stats.store.SessionStore"
+    profiler_context = "coverage_stats.profiler.ProfilerContext"
+    line_tracer = (
+        "coverage_stats.profiler.MonitoringLineTracer"
+        if sys.version_info >= (3, 12)
+        else "coverage_stats.profiler.LineTracer"
+    )
+    report_builder = "coverage_stats.reporters.report_data.DefaultReportBuilder"
+    coverage_py_interop = "coverage_stats.reporters.report_data.CoveragePyInterop"
 
-def _load_line_tracer_class(dotted_path: str) -> type[LineTracer]:
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid line tracer class path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)  # type: ignore[no-any-return]
+    def __init__(self, precision: int = 1) -> None:
+        self.precision = precision
 
+    def _load_class(self, dotted_path: str) -> type:
+        module_path, sep, class_name = dotted_path.rpartition(".")
+        if not sep:
+            raise ValueError(
+                f"Invalid class path {dotted_path!r}: expected 'module.path.ClassName'"
+            )
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)  # type: ignore[no-any-return]
 
-def _load_report_builder_class(dotted_path: str) -> type:
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid report builder class path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)  # type: ignore[no-any-return]
+    def get_store(self) -> SessionStore:
+        cls: type[SessionStore] = self._load_class(self.store)
+        return cls()
 
+    def get_profiler_context(self, source_dirs: list[str]) -> ProfilerContext:
+        cls: type[ProfilerContext] = self._load_class(self.profiler_context)
+        return cls(source_dirs=source_dirs)
 
-def _load_coverage_py_interop_class(dotted_path: str) -> type:
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid coverage-py interop class path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)  # type: ignore[no-any-return]
+    def get_line_tracer(self, context: ProfilerContext, store: SessionStore) -> LineTracer:
+        cls: type[LineTracer] = self._load_class(self.line_tracer)
+        return cls(context, store)
+
+    def get_report_builder(self) -> ReportBuilder:
+        return self._load_class(self.report_builder)()  # type: ignore[no-any-return]
+
+    def get_coverage_py_interop(self) -> CoveragePyInteropProto:
+        return self._load_class(self.coverage_py_interop)()  # type: ignore[no-any-return]
+
+    def get_reporters(self, formats: list[str], reporter_paths: list[str]) -> list[tuple[str, Reporter]]:
+        """Load built-in and custom reporters, passing precision where accepted."""
+        from coverage_stats.reporters import get_reporter, _instantiate_reporter
+        known_kwargs: dict[str, object] = {"precision": self.precision}
+
+        reporters: list[tuple[str, Reporter]] = []
+        for fmt in formats:
+            reporter = get_reporter(fmt, known_kwargs)
+            if reporter is not None:
+                reporters.append((fmt, reporter))
+            else:
+                warnings.warn(f"coverage-stats: unknown format {fmt!r}, skipping")
+        for path in reporter_paths:
+            try:
+                cls = self._load_class(path)
+                reporters.append((path, _instantiate_reporter(cls, known_kwargs)))
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: failed to load reporter {path!r}: {exc}")
+        return reporters
 
 
 class _XdistWorkerNode(Protocol):
@@ -185,8 +204,7 @@ class CoverageStatsPlugin:
         self._store: SessionStore | None = None
         self._tracer: LineTracer | None = None
         self._orig_read_pyc: object = None  # stored during collection to force rewrite
-        self._report_builder_cls: type = object  # replaced in pytest_configure
-        self._coverage_py_interop_cls: type = object  # replaced in pytest_configure
+        self._customization: CoverageStatsCustomization | None = None  # set in pytest_configure
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionstart(self, session: pytest.Session) -> None:
@@ -259,7 +277,8 @@ class CoverageStatsPlugin:
                 if ctx is not None:
                     _flush_pre_test_lines(ctx, store)
 
-            self._coverage_py_interop_cls().patch_coverage_save(store, _flush)
+            assert self._customization is not None
+            self._customization.get_coverage_py_interop().patch_coverage_save(store, _flush)
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
         """Resolve @covers metadata and reset per-test tracking state."""
@@ -338,7 +357,8 @@ class CoverageStatsPlugin:
             # so the worker's own .coverage.<pid> file would be empty.  Inject our
             # data here, before pytest-cov's pytest_sessionfinish saves the file.
             if self._coverage_py_active and sys.version_info < (3, 12):
-                self._coverage_py_interop_cls().inject_into_coverage_py(self._store)
+                assert self._customization is not None
+                self._customization.get_coverage_py_interop().inject_into_coverage_py(self._store)
             config.workeroutput["coverage_stats_data"] = json.dumps(self._store.to_dict())  # type: ignore[attr-defined]
             return
         # controller or single-process: stop tracer and flush pre-test lines
@@ -353,34 +373,19 @@ class CoverageStatsPlugin:
         # its reports are accurate.  On 3.12+ both tools use sys.monitoring
         # independently and each has its own complete data — no injection needed.
         if self._coverage_py_active and sys.version_info < (3, 12):
-            self._coverage_py_interop_cls().inject_into_coverage_py(self._store)
+            assert self._customization is not None
+            self._customization.get_coverage_py_interop().inject_into_coverage_py(self._store)
         fmt_str = config.getoption("--coverage-stats-format") or config.getini("coverage_stats_format")
         formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
         out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")
         output_dir = Path(out_str).resolve()
-        precision_opt = config.getoption("--coverage-stats-precision")
-        precision: int = int(precision_opt) if precision_opt is not None else int(config.getini("coverage_stats_precision") or 1)
         reporter_str = config.getoption("--coverage-stats-reporter") or config.getini("coverage_stats_reporters")
         reporter_paths = [r.strip() for r in (reporter_str or "").split(",") if r.strip()]
 
-        from coverage_stats.reporters import get_reporter, load_reporter_class, _instantiate_reporter
-        known_kwargs: dict[str, object] = {"precision": precision}
+        assert self._customization is not None
+        reporters = self._customization.get_reporters(formats, reporter_paths)
 
-        reporters = []
-        for fmt in formats:
-            reporter = get_reporter(fmt, known_kwargs)
-            if reporter is not None:
-                reporters.append((fmt, reporter))
-            else:
-                warnings.warn(f"coverage-stats: unknown format {fmt!r}, skipping")
-        for path in reporter_paths:
-            try:
-                cls = load_reporter_class(path)
-                reporters.append((path, _instantiate_reporter(cls, known_kwargs)))
-            except Exception as exc:
-                warnings.warn(f"coverage-stats: failed to load reporter {path!r}: {exc}")
-
-        report = self._report_builder_cls().build(self._store, config)
+        report = self._customization.get_report_builder().build(self._store, config)
         for name, reporter in reporters:
             try:
                 reporter.write(report, output_dir)
@@ -445,59 +450,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="",
     )
     parser.addoption(
-        "--coverage-stats-store",
+        "--coverage-stats-customization",
         type=str,
         default=None,
-        help=f"SessionStore class to use (module.path.ClassName, default: {_DEFAULT_STORE})",
+        help=f"CoverageStatsCustomization class to use (module.path.ClassName, default: {_DEFAULT_CUSTOMIZATION})",
     )
     parser.addini(
-        "coverage_stats_store",
-        help=f"SessionStore class to use (module.path.ClassName, default: {_DEFAULT_STORE})",
-        default=_DEFAULT_STORE,
-    )
-    parser.addoption(
-        "--coverage-stats-profiler-context",
-        type=str,
-        default=None,
-        help=f"ProfilerContext class to use (module.path.ClassName, default: {_DEFAULT_PROFILER_CONTEXT})",
-    )
-    parser.addini(
-        "coverage_stats_profiler_context",
-        help=f"ProfilerContext class to use (module.path.ClassName, default: {_DEFAULT_PROFILER_CONTEXT})",
-        default=_DEFAULT_PROFILER_CONTEXT,
-    )
-    parser.addoption(
-        "--coverage-stats-line-tracer",
-        type=str,
-        default=None,
-        help=f"LineTracer class to use (module.path.ClassName, default: {_DEFAULT_LINE_TRACER})",
-    )
-    parser.addini(
-        "coverage_stats_line_tracer",
-        help=f"LineTracer class to use (module.path.ClassName, default: {_DEFAULT_LINE_TRACER})",
-        default=_DEFAULT_LINE_TRACER,
-    )
-    parser.addoption(
-        "--coverage-stats-report-builder",
-        type=str,
-        default=None,
-        help=f"ReportBuilder class to use (module.path.ClassName, default: {_DEFAULT_REPORT_BUILDER})",
-    )
-    parser.addini(
-        "coverage_stats_report_builder",
-        help=f"ReportBuilder class to use (module.path.ClassName, default: {_DEFAULT_REPORT_BUILDER})",
-        default=_DEFAULT_REPORT_BUILDER,
-    )
-    parser.addoption(
-        "--coverage-stats-coverage-py-interop",
-        type=str,
-        default=None,
-        help=f"CoveragePyInterop class to use (module.path.ClassName, default: {_DEFAULT_COVERAGE_PY_INTEROP})",
-    )
-    parser.addini(
-        "coverage_stats_coverage_py_interop",
-        help=f"CoveragePyInterop class to use (module.path.ClassName, default: {_DEFAULT_COVERAGE_PY_INTEROP})",
-        default=_DEFAULT_COVERAGE_PY_INTEROP,
+        "coverage_stats_customization",
+        help=f"CoverageStatsCustomization class to use (module.path.ClassName, default: {_DEFAULT_CUSTOMIZATION})",
+        default=_DEFAULT_CUSTOMIZATION,
     )
 
 
@@ -517,24 +478,24 @@ def pytest_configure(config: pytest.Config) -> None:
     if isinstance(inicache, dict):
         inicache["enable_assertion_pass_hook"] = True
 
-    store_path = config.getoption("--coverage-stats-store") or config.getini("coverage_stats_store") or _DEFAULT_STORE
-    store_cls = _load_store_class(store_path)
-    ctx_path = config.getoption("--coverage-stats-profiler-context") or config.getini("coverage_stats_profiler_context") or _DEFAULT_PROFILER_CONTEXT
-    ctx_cls = _load_profiler_context_class(ctx_path)
-    tracer_path = config.getoption("--coverage-stats-line-tracer") or config.getini("coverage_stats_line_tracer") or _DEFAULT_LINE_TRACER
-    tracer_cls: type = _load_line_tracer_class(tracer_path)
-    builder_path = config.getoption("--coverage-stats-report-builder") or config.getini("coverage_stats_report_builder") or _DEFAULT_REPORT_BUILDER
-    report_builder_cls = _load_report_builder_class(builder_path)
-    interop_path = config.getoption("--coverage-stats-coverage-py-interop") or config.getini("coverage_stats_coverage_py_interop") or _DEFAULT_COVERAGE_PY_INTEROP
-    coverage_py_interop_cls = _load_coverage_py_interop_class(interop_path)
+    # Load the customization class (single entry point for all class overrides).
+    customization_path = config.getoption("--coverage-stats-customization") or config.getini("coverage_stats_customization") or _DEFAULT_CUSTOMIZATION
+    customization_module, _, customization_cls_name = customization_path.rpartition(".")
+    if not customization_module:
+        raise ValueError(
+            f"Invalid customization class path {customization_path!r}: expected 'module.path.ClassName'"
+        )
+    customization_cls = getattr(importlib.import_module(customization_module), customization_cls_name)
+    precision_opt = config.getoption("--coverage-stats-precision")
+    precision: int = int(precision_opt) if precision_opt is not None else int(config.getini("coverage_stats_precision") or 1)
+    customization: CoverageStatsCustomization = customization_cls(precision=precision)
+    plugin._customization = customization
 
     if _is_xdist_controller(config):
-        store = store_cls()
+        store = customization.get_store()
         config._coverage_stats_ctx = None  # type: ignore[attr-defined]
         plugin._store = store
         plugin._tracer = None
-        plugin._report_builder_cls = report_builder_cls
-        plugin._coverage_py_interop_cls = coverage_py_interop_cls
         config.pluginmanager.register(plugin, "coverage-stats-plugin")
         return
 
@@ -550,15 +511,13 @@ def pytest_configure(config: pytest.Config) -> None:
     # the default "profile everything non-stdlib" behaviour (empty list).
     source_dirs = [str(p) for p in candidate_dirs if p.is_dir()]
 
-    ctx = ctx_cls(source_dirs=source_dirs)
-    store = store_cls()
-    tracer = tracer_cls(ctx, store)
+    ctx = customization.get_profiler_context(source_dirs)
+    store = customization.get_store()
+    tracer = customization.get_line_tracer(ctx, store)
 
     config._coverage_stats_ctx = ctx  # type: ignore[attr-defined]
     plugin._store = store
     plugin._tracer = tracer
-    plugin._report_builder_cls = report_builder_cls
-    plugin._coverage_py_interop_cls = coverage_py_interop_cls
 
     # Bypass pytest's assertion-rewrite .pyc cache during test collection.
     # pytest caches rewritten bytecode without including `enable_assertion_pass_hook`

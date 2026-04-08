@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import importlib
 import inspect
-from typing import Any, cast
+from typing import Any
 
 from coverage_stats.reporters.base import Reporter
 
@@ -19,20 +18,6 @@ def _instantiate_reporter(cls: type[Reporter], known_kwargs: dict[str, Any]) -> 
         return cls(**known_kwargs)
     filtered = {k: v for k, v in known_kwargs.items() if k in sig.parameters}
     return cls(**filtered)
-
-
-def load_reporter_class(dotted_path: str) -> type[Reporter]:
-    """Import and return a reporter class from a ``'module.path.ClassName'`` string."""
-    module_path, sep, class_name = dotted_path.rpartition(".")
-    if not sep:
-        raise ValueError(
-            f"Invalid reporter path {dotted_path!r}: expected 'module.path.ClassName'"
-        )
-    module = importlib.import_module(module_path)
-    cls = getattr(module, class_name)
-    if not callable(cls):
-        raise TypeError(f"{dotted_path!r} is not a callable class")
-    return cast(type[Reporter], cls)
 
 
 def get_reporter(fmt: str, known_kwargs: dict[str, Any]) -> Reporter | None:

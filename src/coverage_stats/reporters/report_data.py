@@ -213,6 +213,19 @@ class ReportBuilder(Protocol):
     def build(self, store: SessionStore, config: pytest.Config) -> CoverageReport: ...
 
 
+class CoveragePyInteropProto(Protocol):
+    """Protocol for coverage.py data injection.
+
+    The default implementation is ``CoveragePyInterop``.
+    """
+
+    def patch_coverage_save(
+        self, store: SessionStore, flush_pre_test_lines: Callable[[], None],
+    ) -> None: ...
+
+    def inject_into_coverage_py(self, store: SessionStore) -> None: ...
+
+
 class DefaultReportBuilder:
     """Default implementation of the ReportBuilder protocol."""
 
