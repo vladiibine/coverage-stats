@@ -3,8 +3,8 @@
 
 | Improvement | Effort | Impact | Priority | Status      |
 |---|---|---|---|-------------|
-| 2.1 Reduce hot-path attribute lookups | Low | High (perf) | **P0** | done   |
-| 2.2 `__slots__` on `LineData` | Low | Medium (perf + memory) | **P0** | not started |
+| 2.1 Reduce hot-path attribute lookups | Low | High (perf) | **P0** | done        |
+| 2.2 `__slots__` on `LineData` | Low | Medium (perf + memory) | **P0** | done        |
 | 5.2 Move `covers_lines` to `ProfilerContext` | Low | Medium (perf + clarity) | **P0** | not started |
 | 2.3 `defaultdict` for `SessionStore` | Low | Low-Medium (perf) | **P1** | not started |
 | 2.5 Precompute `_in_scope` prefixes | Low | Low (perf) | **P1** | not started |

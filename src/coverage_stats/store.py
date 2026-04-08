@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 
+# slots=True (Python 3.10+) eliminates __dict__ per instance and speeds up
+# attribute access.  LineData is allocated once per unique (path, lineno) pair
+# and its fields are incremented on every line event, so this matters.
+_SLOTS_KW: dict[str, bool] = {"slots": True} if sys.version_info >= (3, 10) else {}
 
-@dataclass
+
+@dataclass(**_SLOTS_KW)
 class LineData:
     incidental_executions: int = 0
     deliberate_executions: int = 0
