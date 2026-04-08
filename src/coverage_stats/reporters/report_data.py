@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import ast
 import sys
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Callable, Protocol
 
 import pytest
 
@@ -185,6 +186,16 @@ class CoverageReport:
     root: FolderNode
 
 
+def _is_wildcard_case(case: ast.match_case) -> bool:
+    """Mirror coverage.py's wildcard detection logic for match-case statements."""
+    pattern = case.pattern
+    while isinstance(pattern, ast.MatchOr):
+        pattern = pattern.patterns[-1]
+    while isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
+        pattern = pattern.pattern
+    return isinstance(pattern, ast.MatchAs) and pattern.pattern is None and case.guard is None
+
+
 class ReportBuilder(Protocol):
     """Protocol for building a CoverageReport from raw session data.
 
@@ -196,7 +207,6 @@ class ReportBuilder(Protocol):
 
     - Override ``build_folder_tree`` to change how files are grouped.
     - Override ``_analyze_branches`` to change branch-coverage logic.
-    - Override ``_is_wildcard_case`` to change match-case wildcard detection.
     - Implement this protocol from scratch for a full replacement.
     """
 
@@ -394,7 +404,7 @@ class DefaultReportBuilder:
                 for i, case in enumerate(node.cases):
                     case_line = case.pattern.lineno
                     is_last = i == len(node.cases) - 1
-                    if is_last and self._is_wildcard_case(case):
+                    if is_last and _is_wildcard_case(case):
                         # Wildcard always matches — no branching arcs
                         continue
                     elif is_last:
@@ -433,21 +443,29 @@ class DefaultReportBuilder:
             arcs_incidental=arcs_incidental,
         )
 
-    def _is_wildcard_case(self, case: ast.match_case) -> bool:
-        """Mirror coverage.py's wildcard detection logic."""
-        pattern = case.pattern
-        while isinstance(pattern, ast.MatchOr):
-            pattern = pattern.patterns[-1]
-        while isinstance(pattern, ast.MatchAs) and pattern.pattern is not None:
-            pattern = pattern.pattern
-        return isinstance(pattern, ast.MatchAs) and pattern.pattern is None and case.guard is None
 
-    def _compute_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
+class CoveragePyInterop:
+    """Computes arc data suitable for injection into coverage.py's CoverageData.
+
+    On Python < 3.12, coverage-stats displaces coverage.py's C tracer via
+    sys.settrace, so coverage.py records nothing during tests.  This class
+    reconstructs the arc (and optionally line) data from coverage-stats'
+    SessionStore so it can be injected before coverage.py writes to disk.
+
+    Two levels of arc detail:
+
+    - ``compute_arcs``: branch arcs only (if/for/while/match).
+    - ``compute_full_arcs``: branch arcs + sequential + entry/exit arcs for
+      every executed scope, producing the complete set coverage.py needs to
+      derive line coverage when in arc (--cov-branch) mode.
+    """
+
+    def compute_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
         """Compute the (from_line, to_line) arc pairs that were actually traversed.
 
         Returns a list suitable for passing to coverage.CoverageData.add_arcs().
-        Uses the same execution-count heuristics as _analyze_branches to infer
-        which branches were taken, then maps them to concrete line pairs.
+        Uses execution-count heuristics to infer which branches were taken, then
+        maps them to concrete line pairs.
 
         For false branches without an explicit else/elif, the destination is the
         first statement that follows the entire if/while/for block in source order.
@@ -529,7 +547,7 @@ class DefaultReportBuilder:
                 for i, case in enumerate(node.cases):
                     case_line = case.pattern.lineno
                     is_last = i == len(node.cases) - 1
-                    if is_last and self._is_wildcard_case(case):
+                    if is_last and _is_wildcard_case(case):
                         continue
                     body_lineno = case.body[0].lineno
                     body_taken = _count(body_lineno) > 0
@@ -546,7 +564,7 @@ class DefaultReportBuilder:
 
         return arcs
 
-    def _compute_full_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
+    def compute_full_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
         """Compute comprehensive execution arcs for coverage.py branch-mode injection.
 
         When coverage.py runs with --cov-branch, it stores arc data and derives
@@ -556,7 +574,7 @@ class DefaultReportBuilder:
         This generates three kinds of arcs:
         1. Function/module entry and exit arcs (negative line numbers)
         2. Sequential arcs between consecutive executed lines in the same scope
-        3. Branch arcs from _compute_arcs() (if/for/while/match)
+        3. Branch arcs from compute_arcs() (if/for/while/match)
 
         Coverage.py ignores injected arcs that fall outside its own
         arc_possibilities set, so slightly imprecise sequential arcs (e.g.
@@ -623,13 +641,97 @@ class DefaultReportBuilder:
             arcs.add((fn_lines[-1], -scope_key))
 
         # Branch arcs (may duplicate sequential arcs — set handles dedup).
-        for arc in self._compute_arcs(path, lines):
+        for arc in self.compute_arcs(path, lines):
             arcs.add(arc)
 
         return list(arcs)
 
+    def full_arcs_for_store(self, store: SessionStore) -> dict[str, list[tuple[int, int]]]:
+        """Compute comprehensive execution arcs for every file in *store*.
 
-# Module-level shims for backward compatibility
+        Returns the full set of arcs (entry/exit + sequential + branch) needed
+        when coverage.py is in branch mode and add_lines() cannot be used.
+        """
+        files: dict[str, dict[int, LineData]] = {}
+        for (path, lineno), ld in store._data.items():
+            files.setdefault(path, {})[lineno] = ld
+        return {path: self.compute_full_arcs(path, line_data) for path, line_data in files.items()}
+
+    def patch_coverage_save(
+        self,
+        store: SessionStore,
+        flush_pre_test_lines: Callable[[], None],
+    ) -> None:
+        """Patch Coverage.save() to inject our data just before it writes to disk.
+
+        Call this after the tracer is installed but before any tests run.  The
+        patch is self-removing: it fires once, injects store data (plus any
+        accumulated pre-test lines via *flush_pre_test_lines*), then restores
+        the original save() method.
+
+        pytest-cov 7+ calls cov.save() inside a pytest_runtestloop wrapper that
+        completes *before* pytest_sessionfinish fires, so a pytest_sessionfinish
+        hook arrives too late.  Patching the method itself is hook-ordering
+        independent: our data is always present in the CoverageData object at
+        the exact moment it is flushed to disk.
+        """
+        try:
+            import coverage as coverage_module
+        except ImportError:
+            return
+        cov = coverage_module.Coverage.current()
+        if cov is None:
+            return
+        interop = self
+        _orig_save = cov.save
+
+        def _save_with_injection(*args: Any, **kwargs: Any) -> object:
+            cov.save = _orig_save  # type: ignore[method-assign]  # un-patch first (avoid recursion)
+            try:
+                flush_pre_test_lines()
+                data = cov.get_data()
+                if data.has_arcs():
+                    arcs = interop.full_arcs_for_store(store)
+                    if arcs:
+                        data.add_arcs(arcs)
+                else:
+                    data.add_lines(store.lines_by_file())
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: failed to inject data into coverage.py (1): {exc}")
+            return _orig_save(*args, **kwargs)
+
+        cov.save = _save_with_injection  # type: ignore[assignment]
+
+    def inject_into_coverage_py(self, store: SessionStore) -> None:
+        """Inject line/arc data directly into coverage.py's live CoverageData.
+
+        Best-effort fallback for coverage tool integrations that call
+        cov.save() from pytest_sessionfinish (older pytest-cov versions, custom
+        runners, etc.).  The primary injection path is ``patch_coverage_save``,
+        which covers pytest-cov 7+ that saves inside a pytest_runtestloop
+        wrapper.
+        """
+        try:
+            import coverage as coverage_module
+        except ImportError:
+            return
+        cov = coverage_module.Coverage.current()
+        if cov is None:
+            return
+        try:
+            data = cov.get_data()
+            if data.has_arcs():
+                arcs = self.full_arcs_for_store(store)
+                if arcs:
+                    data.add_arcs(arcs)
+            else:
+                data.add_lines(store.lines_by_file())
+        except Exception as exc:
+            warnings.warn(f"coverage-stats: failed to inject data into coverage.py (2): {exc}")
+
+# TODO - get rid of these shims, as AI could think these kinds of functions should be used in the library's code,
+#  outside of tests, which they should not be
+# Module-level shims for backward compatibility in tests
 def build_report(store: SessionStore, config: pytest.Config) -> CoverageReport:
     return DefaultReportBuilder().build(store, config)
 
@@ -641,23 +743,3 @@ def build_folder_tree(summaries: list[FileSummary]) -> FolderNode:
 def _analyze_branches(path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
     return DefaultReportBuilder()._analyze_branches(path, lines)
 
-
-# TODO - this needs to be a method on a class. This class does not yet exist. Currently, this function is
-#  used in CoverageStatsPlugin. The CoverageStatsPlugin class needs to be split into 2. One class to handle the
-#  essential complexity, and another one - the accidental one (the connection to the pytest framework).
-# TODO - this function uses DefaultReportBuilder directly, to use ._compute_full_arcs. Clearly, the
-#  methods for arc computation need to be added to the same place (same class). There's also the
-#  DefaultReportBuilder._compute_arcs method that's used by ._compute_full_arcs. These 3 methods probably
-#  belong to a "CoveragePyInterop" class - totally not the default report builder!
-def compute_full_arcs_for_store(store: SessionStore) -> dict[str, list[tuple[int, int]]]:
-    """Compute comprehensive execution arcs for every file in *store*.
-
-    Like compute_arcs_for_store() but generates the full set of arcs
-    (entry/exit + sequential + branch) needed when coverage.py is in
-    branch mode and add_lines() cannot be used.
-    """
-    files: dict[str, dict[int, LineData]] = {}
-    for (path, lineno), ld in store._data.items():
-        files.setdefault(path, {})[lineno] = ld
-    builder = DefaultReportBuilder()
-    return {path: builder._compute_full_arcs(path, line_data) for path, line_data in files.items()}

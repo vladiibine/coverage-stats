@@ -20,6 +20,7 @@ _DEFAULT_LINE_TRACER = (
     else "coverage_stats.profiler.LineTracer"
 )
 _DEFAULT_REPORT_BUILDER = "coverage_stats.reporters.report_data.DefaultReportBuilder"
+_DEFAULT_COVERAGE_PY_INTEROP = "coverage_stats.reporters.report_data.CoveragePyInterop"
 
 
 def _load_store_class(dotted_path: str) -> type[SessionStore]:
@@ -57,6 +58,16 @@ def _load_report_builder_class(dotted_path: str) -> type:
     if not sep:
         raise ValueError(
             f"Invalid report builder class path {dotted_path!r}: expected 'module.path.ClassName'"
+        )
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)  # type: ignore[no-any-return]
+
+
+def _load_coverage_py_interop_class(dotted_path: str) -> type:
+    module_path, sep, class_name = dotted_path.rpartition(".")
+    if not sep:
+        raise ValueError(
+            f"Invalid coverage-py interop class path {dotted_path!r}: expected 'module.path.ClassName'"
         )
     module = importlib.import_module(module_path)
     return getattr(module, class_name)  # type: ignore[no-any-return]
@@ -175,6 +186,7 @@ class CoverageStatsPlugin:
         self._tracer: LineTracer | None = None
         self._orig_read_pyc: object = None  # stored during collection to force rewrite
         self._report_builder_cls: type = object  # replaced in pytest_configure
+        self._coverage_py_interop_cls: type = object  # replaced in pytest_configure
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionstart(self, session: pytest.Session) -> None:
@@ -238,7 +250,16 @@ class CoverageStatsPlugin:
         # works regardless of which hook (pytest_runtestloop or
         # pytest_sessionfinish) triggers the actual save.
         if self._coverage_py_active and sys.version_info < (3, 12):
-            self._patch_coverage_save(session.config)
+            assert self._store is not None
+            config = session.config
+            store = self._store
+
+            def _flush() -> None:
+                ctx = getattr(config, "_coverage_stats_ctx", None)
+                if ctx is not None:
+                    _flush_pre_test_lines(ctx, store)
+
+            self._coverage_py_interop_cls().patch_coverage_save(store, _flush)
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
         """Resolve @covers metadata and reset per-test tracking state."""
@@ -279,83 +300,6 @@ class CoverageStatsPlugin:
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
         ctx.record_assertion()
 
-    def _patch_coverage_save(self, config: pytest.Config) -> None:
-        """Patch Coverage.save() to inject our data just before it writes to disk.
-
-        Called from pytest_collection_finish — after the tracer is installed but
-        before any tests run.  The patch is self-removing: it fires once, injects
-        store data (plus any accumulated pre-test lines), then restores the
-        original save() method.
-
-        pytest-cov 7+ calls cov.save() inside a pytest_runtestloop wrapper that
-        completes *before* pytest_sessionfinish fires, so a pytest_sessionfinish
-        hook arrives too late.  Patching the method itself is hook-ordering
-        independent: our data is always present in the CoverageData object at
-        the exact moment it is flushed to disk.
-        """
-        try:
-            import coverage as coverage_module
-        except ImportError:
-            return
-        cov = coverage_module.Coverage.current()
-        if cov is None:
-            return
-        plugin = self
-        _orig_save = cov.save
-
-        def _save_with_injection(*args: object, **kwargs: object) -> object:
-            cov.save = _orig_save  # type: ignore[method-assign]  # un-patch first (avoid recursion)
-            try:
-                if plugin._store is not None:
-                    # Flush pre-test lines (def/class/module-level) — these are
-                    # accumulated in ctx.pre_test_lines during collection and have
-                    # not yet been moved to the store when save() fires.
-                    ctx = getattr(config, "_coverage_stats_ctx", None)
-                    if ctx is not None:
-                        _flush_pre_test_lines(ctx, plugin._store)
-                    data = cov.get_data()
-                    if data.has_arcs():
-                        from coverage_stats.reporters.report_data import compute_full_arcs_for_store
-                        arcs = compute_full_arcs_for_store(plugin._store)
-                        if arcs:
-                            data.add_arcs(arcs)
-                    else:
-                        data.add_lines(plugin._store.lines_by_file())
-            except Exception as exc:
-                warnings.warn(f"coverage-stats: failed to inject data into coverage.py (1) : {exc}")
-            return _orig_save(*args, **kwargs)
-
-        cov.save = _save_with_injection  # type: ignore[assignment]
-
-    def _inject_into_coverage_py(self) -> None:
-        """Fallback: inject line/arc data directly into coverage.py's live CoverageData.
-
-        This is a best-effort fallback for coverage tool integrations that call
-        cov.save() from pytest_sessionfinish (older pytest-cov versions, custom
-        runners, etc.).  The primary injection path is _patch_coverage_save(),
-        called from pytest_collection_finish, which covers pytest-cov 7+ that
-        saves inside a pytest_runtestloop wrapper.
-        """
-        try:
-            import coverage as coverage_module
-        except ImportError:
-            return
-        cov = coverage_module.Coverage.current()
-        if cov is None:
-            return
-        assert self._store is not None
-        try:
-            data = cov.get_data()
-            if data.has_arcs():
-                from coverage_stats.reporters.report_data import compute_full_arcs_for_store
-                arcs = compute_full_arcs_for_store(self._store)
-                if arcs:
-                    data.add_arcs(arcs)
-            else:
-                data.add_lines(self._store.lines_by_file())
-        except Exception as exc:
-            warnings.warn(f"coverage-stats: failed to inject data into coverage.py (2): {exc}")
-
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: _XdistWorkerNode, error: BaseException | None) -> None:
         """Merge coverage data from an xdist worker into the controller's store."""
@@ -394,7 +338,7 @@ class CoverageStatsPlugin:
             # so the worker's own .coverage.<pid> file would be empty.  Inject our
             # data here, before pytest-cov's pytest_sessionfinish saves the file.
             if self._coverage_py_active and sys.version_info < (3, 12):
-                self._inject_into_coverage_py()
+                self._coverage_py_interop_cls().inject_into_coverage_py(self._store)
             config.workeroutput["coverage_stats_data"] = json.dumps(self._store.to_dict())  # type: ignore[attr-defined]
             return
         # controller or single-process: stop tracer and flush pre-test lines
@@ -409,7 +353,7 @@ class CoverageStatsPlugin:
         # its reports are accurate.  On 3.12+ both tools use sys.monitoring
         # independently and each has its own complete data — no injection needed.
         if self._coverage_py_active and sys.version_info < (3, 12):
-            self._inject_into_coverage_py()
+            self._coverage_py_interop_cls().inject_into_coverage_py(self._store)
         fmt_str = config.getoption("--coverage-stats-format") or config.getini("coverage_stats_format")
         formats = [f.strip() for f in (fmt_str or "").split(",") if f.strip()]
         out_str = config.getoption("--coverage-stats-output") or config.getini("coverage_stats_output_dir")
@@ -544,6 +488,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=f"ReportBuilder class to use (module.path.ClassName, default: {_DEFAULT_REPORT_BUILDER})",
         default=_DEFAULT_REPORT_BUILDER,
     )
+    parser.addoption(
+        "--coverage-stats-coverage-py-interop",
+        type=str,
+        default=None,
+        help=f"CoveragePyInterop class to use (module.path.ClassName, default: {_DEFAULT_COVERAGE_PY_INTEROP})",
+    )
+    parser.addini(
+        "coverage_stats_coverage_py_interop",
+        help=f"CoveragePyInterop class to use (module.path.ClassName, default: {_DEFAULT_COVERAGE_PY_INTEROP})",
+        default=_DEFAULT_COVERAGE_PY_INTEROP,
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -570,6 +525,8 @@ def pytest_configure(config: pytest.Config) -> None:
     tracer_cls: type = _load_line_tracer_class(tracer_path)
     builder_path = config.getoption("--coverage-stats-report-builder") or config.getini("coverage_stats_report_builder") or _DEFAULT_REPORT_BUILDER
     report_builder_cls = _load_report_builder_class(builder_path)
+    interop_path = config.getoption("--coverage-stats-coverage-py-interop") or config.getini("coverage_stats_coverage_py_interop") or _DEFAULT_COVERAGE_PY_INTEROP
+    coverage_py_interop_cls = _load_coverage_py_interop_class(interop_path)
 
     if _is_xdist_controller(config):
         store = store_cls()
@@ -577,6 +534,7 @@ def pytest_configure(config: pytest.Config) -> None:
         plugin._store = store
         plugin._tracer = None
         plugin._report_builder_cls = report_builder_cls
+        plugin._coverage_py_interop_cls = coverage_py_interop_cls
         config.pluginmanager.register(plugin, "coverage-stats-plugin")
         return
 
@@ -600,6 +558,7 @@ def pytest_configure(config: pytest.Config) -> None:
     plugin._store = store
     plugin._tracer = tracer
     plugin._report_builder_cls = report_builder_cls
+    plugin._coverage_py_interop_cls = coverage_py_interop_cls
 
     # Bypass pytest's assertion-rewrite .pyc cache during test collection.
     # pytest caches rewritten bytecode without including `enable_assertion_pass_hook`
