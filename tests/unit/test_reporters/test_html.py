@@ -19,6 +19,7 @@ from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPag
 from coverage_stats.reporters.base import Reporter
 from coverage_stats.reporters.report_data import (
     FileSummary,
+    FolderNode,
     LineReport,
     build_folder_tree,
     build_report,
@@ -489,22 +490,22 @@ def test_build_file_tree_groups_by_folder():
     assert src_node.subfolders["sub"].files[0].rel_path == "src/sub/b.py"
 
 
-@covers(build_folder_tree)
+@covers(FolderNode.compute_aggregates)
 def test_folder_node_aggregates_stats():
     summaries = [
         _make_file_summary("src/a.py", total_stmts=10, total_covered=7, arcs_total=4, arcs_covered=3, arcs_deliberate=2, arcs_incidental=1, deliberate_covered=5, incidental_covered=3),
         _make_file_summary("src/sub/b.py", total_stmts=8, total_covered=5, arcs_total=2, arcs_covered=1, arcs_deliberate=1, arcs_incidental=0, deliberate_covered=2, incidental_covered=4),
     ]
     tree = build_folder_tree(summaries)
-    src = tree.subfolders["src"]
-    assert src.agg_total_stmts() == 18
-    assert src.agg_total_covered() == 12
-    assert src.agg_deliberate() == 7
-    assert src.agg_incidental() == 7
-    assert src.agg_arcs_total() == 6
-    assert src.agg_arcs_covered() == 4
-    assert src.agg_arcs_deliberate() == 3
-    assert src.agg_arcs_incidental() == 1
+    agg = tree.subfolders["src"].compute_aggregates()
+    assert agg.total_stmts == 18
+    assert agg.total_covered == 12
+    assert agg.deliberate == 7
+    assert agg.incidental == 7
+    assert agg.arcs_total == 6
+    assert agg.arcs_covered == 4
+    assert agg.arcs_deliberate == 3
+    assert agg.arcs_incidental == 1
 
 
 @covers(_render_tree_rows)
@@ -556,16 +557,6 @@ def test_render_file_stats_shows_total_pct():
     assert "70.0%" in result
     assert "total %" in result
 
-
-@covers(build_folder_tree)
-def test_folder_node_agg_total_covered():
-    summaries = [
-        _make_file_summary("a/x.py", total_stmts=10, total_covered=8, deliberate_covered=6, incidental_covered=3),
-        _make_file_summary("a/y.py", total_stmts=5, total_covered=3, deliberate_covered=1, incidental_covered=2),
-    ]
-    tree = build_folder_tree(summaries)
-    node = tree.subfolders["a"]
-    assert node.agg_total_covered() == 11  # 8 + 3
 
 
 @covers(_render_tree_rows)

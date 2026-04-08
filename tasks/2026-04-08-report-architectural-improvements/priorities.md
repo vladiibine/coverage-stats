@@ -9,7 +9,7 @@
 | 2.3 `defaultdict` for `SessionStore` | Low | Low-Medium (perf) | **P1** | done |
 | 2.5 Precompute `_in_scope` prefixes | Low | Low (perf) | **P1** | done |
 | 1.3 Remove `assert_counter.py` | Low | Low (simplicity) | **P1** | done |
-| 1.4 Single-pass `FolderNode` aggregation | Low | Medium (perf for large codebases) | **P1** | not started |
+| 1.4 Single-pass `FolderNode` aggregation | Low | Medium (perf for large codebases) | **P1** | done |
 | 1.2 Break up `report_data.py` | Medium | High (maintainability) | **P1** | not started |
 | 5.1 Public iteration API on `SessionStore` | Low | Medium (encapsulation) | **P2** | not started |
 | 1.1 Split `plugin.py` | Medium-High | High (maintainability + testability) | **P2** | not started |

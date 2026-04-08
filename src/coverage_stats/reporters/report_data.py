@@ -97,80 +97,78 @@ class FileSummary:
 
 
 @dataclass
+class _FolderAggregates:
+    """All aggregated metrics for a folder subtree, computed in a single bottom-up pass."""
+    total_stmts: int = 0
+    total_covered: int = 0
+    arcs_total: int = 0
+    arcs_covered: int = 0
+    arcs_deliberate: int = 0
+    arcs_incidental: int = 0
+    deliberate: int = 0
+    incidental: int = 0
+    incidental_asserts: int = 0
+    deliberate_asserts: int = 0
+
+
+@dataclass
 class FolderNode:
     path: str  # e.g. "src/payments/billing", "" for the virtual root
     subfolders: dict[str, FolderNode] = field(default_factory=dict)
     files: list[FileSummary] = field(default_factory=list)
+    # Cached result of compute_aggregates(); None until first call.
+    _agg: _FolderAggregates | None = field(default=None, init=False, repr=False, compare=False)
 
-    def agg_total_stmts(self) -> int:
-        return sum(f.total_stmts for f in self.files) + sum(
-            s.agg_total_stmts() for s in self.subfolders.values()
-        )
+    def compute_aggregates(self) -> _FolderAggregates:
+        """Return aggregated metrics for this subtree, computing once and caching.
 
-    def agg_total_covered(self) -> int:
-        return sum(f.total_covered for f in self.files) + sum(
-            s.agg_total_covered() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_total(self) -> int:
-        return sum(f.arcs_total for f in self.files) + sum(
-            s.agg_arcs_total() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_covered(self) -> int:
-        return sum(f.arcs_covered for f in self.files) + sum(
-            s.agg_arcs_covered() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_deliberate(self) -> int:
-        return sum(f.arcs_deliberate for f in self.files) + sum(
-            s.agg_arcs_deliberate() for s in self.subfolders.values()
-        )
-
-    def agg_arcs_incidental(self) -> int:
-        return sum(f.arcs_incidental for f in self.files) + sum(
-            s.agg_arcs_incidental() for s in self.subfolders.values()
-        )
-
-    def agg_deliberate(self) -> int:
-        return sum(f.deliberate_covered for f in self.files) + sum(
-            s.agg_deliberate() for s in self.subfolders.values()
-        )
-
-    def agg_incidental(self) -> int:
-        return sum(f.incidental_covered for f in self.files) + sum(
-            s.agg_incidental() for s in self.subfolders.values()
-        )
-
-    def agg_incidental_asserts(self) -> int:
-        return sum(f.incidental_asserts for f in self.files) + sum(
-            s.agg_incidental_asserts() for s in self.subfolders.values()
-        )
-
-    def agg_deliberate_asserts(self) -> int:
-        return sum(f.deliberate_asserts for f in self.files) + sum(
-            s.agg_deliberate_asserts() for s in self.subfolders.values()
-        )
+        A single bottom-up pass collects all 10 metrics simultaneously, reducing
+        index-page rendering from O(n·d·k) to O(n) compared to 9 separate
+        recursive traversals.
+        """
+        if self._agg is not None:
+            return self._agg
+        agg = _FolderAggregates()
+        for f in self.files:
+            agg.total_stmts += f.total_stmts
+            agg.total_covered += f.total_covered
+            agg.arcs_total += f.arcs_total
+            agg.arcs_covered += f.arcs_covered
+            agg.arcs_deliberate += f.arcs_deliberate
+            agg.arcs_incidental += f.arcs_incidental
+            agg.deliberate += f.deliberate_covered
+            agg.incidental += f.incidental_covered
+            agg.incidental_asserts += f.incidental_asserts
+            agg.deliberate_asserts += f.deliberate_asserts
+        for sub in self.subfolders.values():
+            sub_agg = sub.compute_aggregates()
+            agg.total_stmts += sub_agg.total_stmts
+            agg.total_covered += sub_agg.total_covered
+            agg.arcs_total += sub_agg.arcs_total
+            agg.arcs_covered += sub_agg.arcs_covered
+            agg.arcs_deliberate += sub_agg.arcs_deliberate
+            agg.arcs_incidental += sub_agg.arcs_incidental
+            agg.deliberate += sub_agg.deliberate
+            agg.incidental += sub_agg.incidental
+            agg.incidental_asserts += sub_agg.incidental_asserts
+            agg.deliberate_asserts += sub_agg.deliberate_asserts
+        self._agg = agg
+        return agg
 
     def to_index_row(self) -> IndexRowData:
-        total = self.agg_total_stmts()
-        arcs_total = self.agg_arcs_total()
-        denom = total + arcs_total
-        inc_asserts = self.agg_incidental_asserts()
-        del_asserts = self.agg_deliberate_asserts()
-        delib = self.agg_deliberate()
-        incid = self.agg_incidental()
+        agg = self.compute_aggregates()
+        denom = agg.total_stmts + agg.arcs_total
         return IndexRowData(
             total_stmts=denom,
-            total_pct=_pct(self.agg_total_covered() + self.agg_arcs_covered(), denom),
-            deliberate_pct=_pct(delib + self.agg_arcs_deliberate(), denom),
-            incidental_pct=_pct(incid + self.agg_arcs_incidental(), denom),
-            deliberate_covered=delib,
-            incidental_covered=incid,
-            incidental_asserts=inc_asserts,
-            deliberate_asserts=del_asserts,
-            inc_assert_density=inc_asserts / denom if denom else 0.0,
-            del_assert_density=del_asserts / denom if denom else 0.0,
+            total_pct=_pct(agg.total_covered + agg.arcs_covered, denom),
+            deliberate_pct=_pct(agg.deliberate + agg.arcs_deliberate, denom),
+            incidental_pct=_pct(agg.incidental + agg.arcs_incidental, denom),
+            deliberate_covered=agg.deliberate,
+            incidental_covered=agg.incidental,
+            incidental_asserts=agg.incidental_asserts,
+            deliberate_asserts=agg.deliberate_asserts,
+            inc_assert_density=agg.incidental_asserts / denom if denom else 0.0,
+            del_assert_density=agg.deliberate_asserts / denom if denom else 0.0,
         )
 
 

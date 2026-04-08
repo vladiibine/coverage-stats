@@ -3,6 +3,7 @@
 **Priority:** P1
 **Effort:** Low
 **Impact:** Medium (perf for large codebases)
+**Status: Done**
 
 ## Problem
 
