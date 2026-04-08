@@ -1,14 +1,14 @@
 
 ## 7. Priority Matrix
 
-| Improvement | Effort | Impact | Priority | Status      |
-|---|---|---|---|-------------|
-| 2.1 Reduce hot-path attribute lookups | Low | High (perf) | **P0** | done        |
-| 2.2 `__slots__` on `LineData` | Low | Medium (perf + memory) | **P0** | done        |
-| 5.2 Move `covers_lines` to `ProfilerContext` | Low | Medium (perf + clarity) | **P0** | not started |
-| 2.3 `defaultdict` for `SessionStore` | Low | Low-Medium (perf) | **P1** | not started |
-| 2.5 Precompute `_in_scope` prefixes | Low | Low (perf) | **P1** | not started |
-| 1.3 Remove `assert_counter.py` | Low | Low (simplicity) | **P1** | not started |
+| Improvement | Effort | Impact | Priority | Status    |
+|---|---|---|---|-----------|
+| 2.1 Reduce hot-path attribute lookups | Low | High (perf) | **P0** | done      |
+| 2.2 `__slots__` on `LineData` | Low | Medium (perf + memory) | **P0** | done      |
+| 5.2 Move `covers_lines` to `ProfilerContext` | Low | Medium (perf + clarity) | **P0** | done |
+| 2.3 `defaultdict` for `SessionStore` | Low | Low-Medium (perf) | **P1** | done |
+| 2.5 Precompute `_in_scope` prefixes | Low | Low (perf) | **P1** | done |
+| 1.3 Remove `assert_counter.py` | Low | Low (simplicity) | **P1** | done |
 | 1.4 Single-pass `FolderNode` aggregation | Low | Medium (perf for large codebases) | **P1** | not started |
 | 1.2 Break up `report_data.py` | Medium | High (maintainability) | **P1** | not started |
 | 5.1 Public iteration API on `SessionStore` | Low | Medium (encapsulation) | **P2** | not started |

@@ -3,6 +3,7 @@
 **Priority:** P1
 **Effort:** Low
 **Impact:** Low-Medium (perf)
+**Status: Done**
 
 ## Problem
 

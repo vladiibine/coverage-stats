@@ -90,6 +90,11 @@ class MonitoringLineTracer:
         self._store = store
         self._tool_id: int | None = None
         self._scope_cache: dict[str, tuple[str, bool]] = {}
+        # Precompute (exact, prefix/) pairs once so _in_scope avoids allocating
+        # `d + "/"` on every call.
+        self._source_prefixes: list[tuple[str, str]] = [
+            (d, d + "/") for d in context.source_dirs
+        ]
 
     def start(self) -> None:
         if self._tool_id is not None:
@@ -125,10 +130,10 @@ class MonitoringLineTracer:
         self._tool_id = None
 
     def _in_scope(self, filename: str) -> bool:
-        if self._context.source_dirs:
+        if self._source_prefixes:
             return any(
-                filename == d or filename.startswith(d + "/")
-                for d in self._context.source_dirs
+                filename == d or filename.startswith(p)
+                for d, p in self._source_prefixes
             )
         prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
         return "site-packages" not in filename and not filename.startswith(prefix)
@@ -187,6 +192,11 @@ class LineTracer:
         # Cache raw co_filename → (resolved_str, in_scope) so _trace pays the
         # Path.resolve() + _in_scope cost at most once per unique source file.
         self._scope_cache: dict[str, tuple[str, bool]] = {}
+        # Precompute (exact, prefix/) pairs once so _in_scope avoids allocating
+        # `d + "/"` on every call.
+        self._source_prefixes: list[tuple[str, str]] = [
+            (d, d + "/") for d in context.source_dirs
+        ]
 
     def start(self) -> None:
         current = sys.gettrace()
@@ -206,10 +216,10 @@ class LineTracer:
         sys.settrace(self._prev_trace)
 
     def _in_scope(self, filename: str) -> bool:
-        if self._context.source_dirs:
+        if self._source_prefixes:
             return any(
-                filename == d or filename.startswith(d + "/")
-                for d in self._context.source_dirs
+                filename == d or filename.startswith(p)
+                for d, p in self._source_prefixes
             )
         prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
         return "site-packages" not in filename and not filename.startswith(prefix)

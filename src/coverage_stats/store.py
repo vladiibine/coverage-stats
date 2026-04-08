@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 
 # slots=True (Python 3.10+) eliminates __dict__ per instance and speeds up
@@ -21,11 +22,13 @@ class LineData:
 
 class SessionStore:
     def __init__(self) -> None:
-        self._data: dict[tuple[str, int], LineData] = {}
+        # defaultdict reduces get_or_create to a single dict lookup on both hit
+        # and miss (vs. two lookups with the previous `if key not in` pattern).
+        # __contains__ / `in` checks do NOT trigger __missing__, so existing code
+        # that guards with `if key not in store._data` remains correct.
+        self._data: defaultdict[tuple[str, int], LineData] = defaultdict(LineData)
 
     def get_or_create(self, key: tuple[str, int]) -> LineData:
-        if key not in self._data:
-            self._data[key] = LineData()
         return self._data[key]
 
     def merge(self, other: SessionStore) -> None:

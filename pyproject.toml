@@ -44,7 +44,6 @@ type = "layers"
 layers = [
     "coverage_stats.plugin",
     "coverage_stats.reporters",
-    "coverage_stats.assert_counter",
     "coverage_stats.profiler | coverage_stats.covers",
     "coverage_stats.store | coverage_stats.executable_lines",
 ]
@@ -61,7 +60,6 @@ name = "Nobody imports from plugin"
 type = "forbidden"
 source_modules = [
     "coverage_stats.reporters",
-    "coverage_stats.assert_counter",
     "coverage_stats.covers",
     "coverage_stats.executable_lines",
     "coverage_stats.profiler",
