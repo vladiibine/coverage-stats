@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
+from coverage_stats.reporters.base import get_reporter
+from coverage_stats.covers import resolve_covers
 
 if TYPE_CHECKING:
     from coverage_stats.profiler import LineTracer, ProfilerContext
-    from coverage_stats.reporters.base import Reporter
+    from coverage_stats.reporters.base import Reporter, _instantiate_reporter
     from coverage_stats.reporters.report_data import (
         CoveragePyInteropProto,
         ReportBuilder,
@@ -73,7 +76,6 @@ class CoverageStatsCustomization:
 
     def get_reporters(self, formats: list[str], reporter_paths: list[str]) -> list[tuple[str, Reporter]]:
         """Load built-in and custom reporters, passing precision where accepted."""
-        from coverage_stats.reporters import get_reporter, _instantiate_reporter
         known_kwargs: dict[str, object] = {"precision": self.precision}
 
         reporters: list[tuple[str, Reporter]] = []
@@ -285,7 +287,6 @@ class CoverageStatsPlugin:
         if not self._enabled:
             return
         if isinstance(item, pytest.Function):
-            from coverage_stats.covers import resolve_covers
             resolve_covers(item)
         ctx = item.config._coverage_stats_ctx  # type: ignore[attr-defined]
         ctx.current_test_item = item
@@ -324,7 +325,6 @@ class CoverageStatsPlugin:
         """Merge coverage data from an xdist worker into the controller's store."""
         if not self._enabled:
             return
-        import json
         raw = getattr(node, "workeroutput", {}).get("coverage_stats_data")
         if raw:
             assert self._store is not None
@@ -346,7 +346,6 @@ class CoverageStatsPlugin:
             return
         config = session.config
         if _is_xdist_worker(config):
-            import json
             if self._tracer is not None:
                 self._tracer.stop()
             assert self._store is not None

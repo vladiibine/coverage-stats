@@ -9,7 +9,7 @@ requires-python = ">=3.9"
 dependencies = ["pytest"]
 
 [project.optional-dependencies]
-dev = ["ruff", "mypy", "nox", "coverage[toml]", "pytest-cov", "pytest-xdist"]
+dev = ["ruff", "mypy", "nox", "coverage[toml]", "pytest-cov", "pytest-xdist", "import-linter"]
 
 [project.entry-points."pytest11"]
 coverage-stats = "coverage_stats.plugin"
@@ -33,3 +33,38 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p pytester"
 testpaths = ["tests"]
+
+# ── import-linter ──────────────────────────────────────────────
+[tool.importlinter]
+root_packages = ["coverage_stats"]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "coverage_stats.plugin",
+    "coverage_stats.reporters",
+    "coverage_stats.assert_counter",
+    "coverage_stats.profiler | coverage_stats.covers",
+    "coverage_stats.store | coverage_stats.executable_lines",
+]
+
+[[tool.importlinter.contracts]]
+name = "Reporters do not import from plugin"
+type = "forbidden"
+source_modules = ["coverage_stats.reporters"]
+forbidden_modules = ["coverage_stats.plugin"]
+
+
+[[tool.importlinter.contracts]]
+name = "Nobody imports from plugin"
+type = "forbidden"
+source_modules = [
+    "coverage_stats.reporters",
+    "coverage_stats.assert_counter",
+    "coverage_stats.covers",
+    "coverage_stats.executable_lines",
+    "coverage_stats.profiler",
+    "coverage_stats.store",
+]
+forbidden_modules = ["coverage_stats.plugin"]
