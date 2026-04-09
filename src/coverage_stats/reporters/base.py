@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 from typing import Protocol, runtime_checkable, Any
 
-from coverage_stats.reporters.report_data import CoverageReport
+from coverage_stats.reporters.models import CoverageReport
 
 
 @runtime_checkable

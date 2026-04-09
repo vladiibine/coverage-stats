@@ -7,7 +7,7 @@ import pytest
 
 from coverage_stats import covers
 from coverage_stats.store import LineData
-from coverage_stats.reporters.report_data import _analyze_branches, DefaultReportBuilder
+from coverage_stats.reporters.report_data import DefaultReportBuilder
 from coverage_stats.executable_lines import get_executable_lines
 
 
@@ -78,7 +78,7 @@ def test_match_case1_always_matched_is_partial(tmp_path):
         case1_body: _ld(5),   # case 1 body ran (always matched)
         # case2_line: never reached → no entry
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case1_line in result
     assert case2_line not in result  # missing, not partial
 
@@ -110,7 +110,7 @@ def test_match_all_cases_taken_not_partial(tmp_path):
         case_wild_line: _ld(1),
         case_wild_line + 1: _ld(1),  # wildcard body (matched once)
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case1_line not in result
     assert case2_line not in result
     assert case_wild_line not in result
@@ -137,7 +137,7 @@ def test_match_case_never_reached_not_partial(tmp_path):
         case1_line: _ld(5),
         case1_line + 1: _ld(5),
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case2_line not in result
 
 
@@ -163,7 +163,7 @@ def test_match_case_never_matched_is_partial(tmp_path):
         case2_line: _ld(5),
         case2_line + 1: _ld(5),
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case1_line in result
 
 
@@ -189,7 +189,7 @@ def test_match_last_case_not_taken_is_partial(tmp_path):
         case2_line: _ld(5),
         # case 2 body: never ran
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case2_line in result
 
 
@@ -212,7 +212,7 @@ def test_match_last_case_taken_not_partial(tmp_path):
         case2_line: _ld(3),
         case2_line + 1: _ld(3),
     }
-    result = _analyze_branches(path, lines).partial
+    result = DefaultReportBuilder()._analyze_branches(path, lines).partial
     assert case2_line not in result
 
 
@@ -240,7 +240,7 @@ def test_analyze_branches_if_both_taken(tmp_path):
         body_line: _ld(5),
         else_body: _ld(5),
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert if_line not in result.partial
     assert result.arcs_total == 2
     assert result.arcs_covered == 2
@@ -261,7 +261,7 @@ def test_analyze_branches_if_false_not_taken(tmp_path):
         if_line: _ld(5),
         body_line: _ld(5),
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert if_line in result.partial
     assert result.arcs_total == 2
     assert result.arcs_covered == 1
@@ -281,7 +281,7 @@ def test_analyze_branches_for_body_not_taken(tmp_path):
         for_line: _ld(3),
         # body (pass) never ran
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert for_line in result.partial
     assert result.arcs_total == 2
     assert result.arcs_covered == 1
@@ -298,7 +298,7 @@ def test_analyze_branches_unreached_branch_contributes_missed_arcs(tmp_path):
     src = (tmp_path / "subject.py").read_text().splitlines()
     if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     lines: dict[int, LineData] = {}   # if line never executed
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert if_line not in result.partial
     assert result.arcs_total == 2
     assert result.arcs_covered == 0
@@ -325,7 +325,7 @@ def test_analyze_branches_match_wildcard_last_case(tmp_path):
         case_wild_line: _ld(2),
         case_wild_line + 1: _ld(2),
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     # non-last case 1: 2 arcs; wildcard last: 0 arcs → total=2
     assert result.arcs_total == 2
     assert case_wild_line not in result.partial
@@ -352,7 +352,7 @@ def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
         case2_line: _ld(2),
         case2_line + 1: _ld(2),
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     # case 1 (non-last): 2 arcs; case 2 (non-wildcard last): 1 arc → total=3
     assert result.arcs_total == 3
 
@@ -381,7 +381,7 @@ def test_analyze_branches_if_true_arc_deliberate(tmp_path):
     if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=3)}
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert result.arcs_deliberate == 1   # true arc taken deliberately
     assert result.arcs_incidental == 0
 
@@ -398,7 +398,7 @@ def test_analyze_branches_if_true_arc_incidental(tmp_path):
     if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(ie=3), body_line: _ld_di(ie=3)}
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert result.arcs_deliberate == 0
     assert result.arcs_incidental == 1   # true arc taken incidentally
 
@@ -416,7 +416,7 @@ def test_analyze_branches_if_false_arc_no_orelse_deliberate(tmp_path):
     body_line = if_line + 1
     # deliberate: ran condition 3 times, body 2 times → false arc taken deliberately
     lines = {if_line: _ld_di(de=3), body_line: _ld_di(de=2)}
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert result.arcs_deliberate == 2   # both true and false arcs taken deliberately
     assert result.arcs_incidental == 0
 
@@ -433,7 +433,7 @@ def test_analyze_branches_if_both_arcs_deliberate_and_incidental(tmp_path):
     if_line = next(i + 1 for i, ln in enumerate(src) if "if x" in ln)
     body_line = if_line + 1
     lines = {if_line: _ld_di(ie=2, de=2), body_line: _ld_di(ie=2, de=2)}
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     assert result.arcs_deliberate == 1   # true arc (body covered deliberately)
     assert result.arcs_incidental == 1   # true arc (body covered incidentally)
 
@@ -459,7 +459,7 @@ def test_analyze_branches_match_arc_deliberate(tmp_path):
         case2_line: _ld_di(ie=2),
         case2_line + 1: _ld_di(ie=2),   # case 2 body: incidental
     }
-    result = _analyze_branches(path, lines)
+    result = DefaultReportBuilder()._analyze_branches(path, lines)
     # case1 body arc → deliberate; case2 body arc → incidental
     # case1 next-case arc: case2_line reached incidentally → incidental
     assert result.arcs_deliberate == 1

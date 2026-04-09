@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from coverage_stats.reporters.report_data import CoverageReport
+from coverage_stats.reporters.models import CoverageReport
 
 
 class DollarsvReporter:

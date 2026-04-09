@@ -3,10 +3,8 @@ from __future__ import annotations
 import pytest
 
 from coverage_stats import covers
-from coverage_stats.reporters.report_data import (
-    FileSummary,
-    build_folder_tree,
-)
+from coverage_stats.reporters.models import FileSummary
+from coverage_stats.reporters.report_data import DefaultReportBuilder
 
 
 def _make_fs(
@@ -97,7 +95,7 @@ def test_folder_to_index_row_total_stmts_includes_arcs():
         _make_fs("src/a.py", total_stmts=10, arcs_total=3),
         _make_fs("src/b.py", total_stmts=7, arcs_total=2),
     ]
-    folder = build_folder_tree(summaries)
+    folder = DefaultReportBuilder().build_folder_tree(summaries)
     row = folder.to_index_row()
     assert row.total_stmts == 22  # (10+3) + (7+2)
 
@@ -109,7 +107,7 @@ def test_folder_to_index_row_density_and_stmts_are_consistent():
         _make_fs("src/a.py", total_stmts=10, arcs_total=3, deliberate_asserts=6),
         _make_fs("src/b.py", total_stmts=7, arcs_total=2, deliberate_asserts=2),
     ]
-    folder = build_folder_tree(summaries)
+    folder = DefaultReportBuilder().build_folder_tree(summaries)
     row = folder.to_index_row()
     # total_stmts = 22, deliberate_asserts = 8 → density = 8/22
     assert row.total_stmts == 22

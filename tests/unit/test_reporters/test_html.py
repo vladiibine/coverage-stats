@@ -17,13 +17,8 @@ from coverage_stats.reporters.html import (
 from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
 from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPageReporter
 from coverage_stats.reporters.base import Reporter
-from coverage_stats.reporters.report_data import (
-    FileSummary,
-    FolderNode,
-    LineReport,
-    build_folder_tree,
-    build_report,
-)
+from coverage_stats.reporters.models import FileSummary, FolderNode, LineReport
+from coverage_stats.reporters.report_data import DefaultReportBuilder
 
 
 def _make_file_summary(
@@ -72,7 +67,7 @@ def make_config(rootdir: Path) -> SimpleNamespace:
 def test_empty_store_writes_index(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, tmp_path / "out")
     assert (tmp_path / "out" / "index.html").exists()
 
@@ -82,7 +77,7 @@ def test_empty_store_no_per_file_pages(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     html_files = list(out_dir.glob("*.html"))
     assert html_files == [out_dir / "index.html"]
@@ -97,7 +92,7 @@ def test_single_file_writes_per_file_page(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     assert (out_dir / "src__foo.py.html").exists()
 
@@ -111,7 +106,7 @@ def test_index_contains_table_and_folder_row(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert "<table>" in content
@@ -127,7 +122,7 @@ def test_index_contains_folder_name(tmp_path):
     store.get_or_create((abs_file, 1)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert "src" in content
@@ -144,7 +139,7 @@ def test_multiple_folders_appear_in_single_table(tmp_path):
     store.get_or_create((str(rootdir / "lib" / "b.py"), 2)).deliberate_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
     assert content.count("<table>") == 1  # single table
@@ -160,7 +155,7 @@ def test_per_file_page_contains_lineno(tmp_path):
     store.get_or_create((abs_file, 42)).incidental_executions = 3
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "42" in content
@@ -175,7 +170,7 @@ def test_deliberate_line_gets_green_class(tmp_path):
     store.get_or_create((abs_file, 5)).deliberate_executions = 2
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "deliberate" in content
@@ -192,7 +187,7 @@ def test_incidental_only_line_gets_yellow_class(tmp_path):
     ld.deliberate_executions = 0
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "incidental" in content
@@ -212,7 +207,7 @@ def test_per_file_page_shows_all_source_lines(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
@@ -235,7 +230,7 @@ def test_per_file_page_shows_uncovered_source_text(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
@@ -256,7 +251,7 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
@@ -286,7 +281,7 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
@@ -315,7 +310,7 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
@@ -343,7 +338,7 @@ def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     content = (out_dir / "index.html").read_text()
 
@@ -362,7 +357,7 @@ def test_unreadable_source_falls_back_gracefully(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     # Must not raise
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     assert (out_dir / "nonexistent.py.html").exists()
     content = (out_dir / "nonexistent.py.html").read_text()
@@ -378,7 +373,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
     store.get_or_create((outside_file, 10)).incidental_executions = 1
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     # index.html should exist and contain the absolute path
     content = (out_dir / "index.html").read_text()
@@ -391,7 +386,7 @@ def test_output_dir_created_if_missing(tmp_path):
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_html(report, out_dir)
     assert (out_dir / "index.html").exists()
 
@@ -475,13 +470,13 @@ def test_render_line_escapes_html():
     assert "&lt;script&gt;" in result
 
 
-@covers(build_folder_tree)
+@covers(DefaultReportBuilder.build_folder_tree)
 def test_build_file_tree_groups_by_folder():
     summaries = [
         _make_file_summary("src/a.py", total_stmts=10, total_covered=7, deliberate_covered=5, incidental_covered=3),
         _make_file_summary("src/sub/b.py", total_stmts=8, total_covered=5, deliberate_covered=2, incidental_covered=4),
     ]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     assert "src" in tree.subfolders
     src_node = tree.subfolders["src"]
     assert len(src_node.files) == 1
@@ -496,7 +491,7 @@ def test_folder_node_aggregates_stats():
         _make_file_summary("src/a.py", total_stmts=10, total_covered=7, arcs_total=4, arcs_covered=3, arcs_deliberate=2, arcs_incidental=1, deliberate_covered=5, incidental_covered=3),
         _make_file_summary("src/sub/b.py", total_stmts=8, total_covered=5, arcs_total=2, arcs_covered=1, arcs_deliberate=1, arcs_incidental=0, deliberate_covered=2, incidental_covered=4),
     ]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     agg = tree.subfolders["src"].compute_aggregates()
     assert agg.total_stmts == 18
     assert agg.total_covered == 12
@@ -511,7 +506,7 @@ def test_folder_node_aggregates_stats():
 @covers(_render_tree_rows)
 def test_render_tree_rows_contains_link_and_folder():
     summaries = [_make_file_summary("src/foo.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=2)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert 'href="src__foo.py.html"' in html
     assert "foo.py" in html
@@ -521,7 +516,7 @@ def test_render_tree_rows_contains_link_and_folder():
 @covers(_render_tree_rows)
 def test_render_tree_rows_pct_calculation():
     summaries = [_make_file_summary("src/x.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=0)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "33.3%" in html  # 1/3 deliberate on file row
     assert "66.7%" in html  # 2/3 total on file row
@@ -564,7 +559,7 @@ def test_render_tree_rows_total_pct_column():
     summaries = [
         _make_file_summary("src/z.py", total_stmts=4, total_covered=3, deliberate_covered=2, incidental_covered=1),
     ]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     assert "75.0%" in html   # 3/4 total on file row
     assert "50.0%" in html   # 2/4 deliberate on file row
@@ -607,21 +602,21 @@ def test_missed_ranges_mixed():
 
 
 # ---------------------------------------------------------------------------
-# build_folder_tree from report_data
+# DefaultReportBuilder.build_folder_tree
 # ---------------------------------------------------------------------------
 
 
-@covers(build_folder_tree)
+@covers(DefaultReportBuilder.build_folder_tree)
 def test_build_folder_tree_groups_single_file():
     summaries = [_make_file_summary("src/a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     assert "src" in tree.subfolders
 
 
-@covers(build_folder_tree)
+@covers(DefaultReportBuilder.build_folder_tree)
 def test_build_folder_tree_file_at_root_level():
     summaries = [_make_file_summary("a.py", total_stmts=1, total_covered=1, deliberate_covered=1)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     assert len(tree.files) == 1
     assert tree.files[0].rel_path == "a.py"
 
@@ -708,7 +703,7 @@ def test_subclass_render_line_override_is_called(tmp_path):
     rootdir.mkdir()
     store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
     config = make_config(rootdir)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
     MarkedReporter().write(report, out_dir)
@@ -733,7 +728,7 @@ def test_subclass_render_index_page_override_is_called(tmp_path):
 
     store = SessionStore()
     config = make_config(tmp_path)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
     BrandedReporter().write(report, out_dir)
@@ -761,7 +756,7 @@ def test_subclass_render_file_stats_override_is_called(tmp_path):
     rootdir.mkdir()
     store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
     config = make_config(rootdir)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
     NoStatsReporter().write(report, out_dir)
@@ -789,7 +784,7 @@ def test_subclass_render_tree_rows_override_is_called(tmp_path):
     rootdir.mkdir()
     store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
     config = make_config(rootdir)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
     FlatReporter().write(report, out_dir)
@@ -864,7 +859,7 @@ def test_index_each_toggleable_column_has_data_col_on_header():
 def test_index_each_toggleable_column_has_data_col_on_data_cells():
     """Every data cell in a toggleable column must carry its data-col attribute so the JS can find it."""
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3, deliberate_covered=2, incidental_covered=1)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
     for col_id in _INDEX_TOGGLEABLE_COLS:
         assert f'data-col="{col_id}"' in html, f"td data-col='{col_id}' missing from index rows"
@@ -973,7 +968,7 @@ def test_index_column_gets_col_hidden_when_python_config_is_false():
 
     reporter = _R()
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     rows_html = "".join(reporter._render_tree_rows(tree, depth=0, parent_id=""))
     html = reporter.render_index_page(rows_html)
     body = html[html.index("<body>"):]
@@ -989,7 +984,7 @@ def test_index_column_gets_col_hidden_when_python_config_is_true():
 
     reporter = _R()
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3)]
-    tree = build_folder_tree(summaries)
+    tree = DefaultReportBuilder().build_folder_tree(summaries)
     rows_html = "".join(reporter._render_tree_rows(tree, depth=0, parent_id=""))
     html = reporter.render_index_page(rows_html)
     body = html[html.index("<body>"):]
@@ -1209,7 +1204,7 @@ def test_write_html_file_page_contains_color_classes(tmp_path):
     store.get_or_create((str(rootdir / "mod.py"), 1)).incidental_executions = 1
     store.get_or_create((str(rootdir / "mod.py"), 2)).incidental_executions = 10
     config = make_config(rootdir)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
     write_html(report, out_dir)

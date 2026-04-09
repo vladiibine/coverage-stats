@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html as _html
 
-from coverage_stats.reporters.report_data import FolderNode
+from coverage_stats.reporters.models import FolderNode
 from coverage_stats.reporters.html_report_helpers.mixins import HtmlReporterMixin
 
 

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from coverage_stats import covers
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.csv_reporter import write_csv
-from coverage_stats.reporters.report_data import build_report
+from coverage_stats.reporters.report_data import DefaultReportBuilder
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
@@ -24,7 +24,7 @@ def test_empty_store_writes_header_only(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -46,7 +46,7 @@ def test_correct_column_order(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -69,7 +69,7 @@ def test_rows_sorted_by_file_then_lineno(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -91,7 +91,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -110,7 +110,7 @@ def test_partial_column_false_for_non_branching_line(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -128,7 +128,7 @@ def test_partial_column_true_for_partial_branch(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
 
     rows = read_csv_rows(out_dir / "coverage-stats.csv")
@@ -142,6 +142,6 @@ def test_output_dir_created_if_missing(tmp_path):
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_csv(report, out_dir)
     assert (out_dir / "coverage-stats.csv").exists()

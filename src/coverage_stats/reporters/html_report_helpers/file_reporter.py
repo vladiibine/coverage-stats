@@ -4,7 +4,7 @@ import html as _html
 from pathlib import Path
 
 from coverage_stats.store import LineData
-from coverage_stats.reporters.report_data import FileReport, LineReport
+from coverage_stats.reporters.models import FileReport, LineReport
 from coverage_stats.reporters.html_report_helpers.mixins import HtmlReporterMixin
 
 

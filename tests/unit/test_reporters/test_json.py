@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from coverage_stats import covers
 from coverage_stats.store import SessionStore
 from coverage_stats.reporters.json_reporter import write_json
-from coverage_stats.reporters.report_data import build_report
+from coverage_stats.reporters.report_data import DefaultReportBuilder
 
 
 def make_config(rootdir: Path) -> SimpleNamespace:
@@ -18,7 +18,7 @@ def make_config(rootdir: Path) -> SimpleNamespace:
 def test_empty_store_produces_empty_files(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, tmp_path / "out")
     result = json.loads((tmp_path / "out" / "coverage-stats.json").read_text())
     assert result == {"files": {}}
@@ -35,7 +35,7 @@ def test_single_file_multi_line_structure(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -62,7 +62,7 @@ def test_summary_calculations(tmp_path):
     src = rootdir / "src"
     src.mkdir(parents=True, exist_ok=True)
     (src / "foo.py").write_text("x = 1\ny = 2\n")
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -89,7 +89,7 @@ def test_assert_density_calculation(tmp_path):
     src = rootdir / "src"
     src.mkdir(parents=True, exist_ok=True)
     (src / "bar.py").write_text("x = 1\ny = 2\n")
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -109,7 +109,7 @@ def test_path_outside_rootdir_fallback(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -128,7 +128,7 @@ def test_lineno_keys_are_strings(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -149,7 +149,7 @@ def test_partial_line_flag_present(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -167,7 +167,7 @@ def test_non_partial_line_flag_is_false(tmp_path):
 
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
 
     result = json.loads((out_dir / "coverage-stats.json").read_text())
@@ -181,6 +181,6 @@ def test_output_dir_created_if_missing(tmp_path):
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
-    report = build_report(store, config)
+    report = DefaultReportBuilder().build(store, config)
     write_json(report, out_dir)
     assert (out_dir / "coverage-stats.json").exists()

@@ -14,10 +14,8 @@ from coverage_stats.covers import resolve_covers
 if TYPE_CHECKING:
     from coverage_stats.profiler import LineTracer, ProfilerContext
     from coverage_stats.reporters.base import Reporter, _instantiate_reporter
-    from coverage_stats.reporters.report_data import (
-        CoveragePyInteropProto,
-        ReportBuilder,
-    )
+    from coverage_stats.reporters.coverage_py_interop import CoveragePyInteropProto
+    from coverage_stats.reporters.report_data import ReportBuilder
     from coverage_stats.store import SessionStore
 
 _DEFAULT_CUSTOMIZATION = "coverage_stats.plugin.CoverageStatsCustomization"
@@ -42,7 +40,7 @@ class CoverageStatsCustomization:
         else "coverage_stats.profiler.LineTracer"
     )
     report_builder = "coverage_stats.reporters.report_data.DefaultReportBuilder"
-    coverage_py_interop = "coverage_stats.reporters.report_data.CoveragePyInterop"
+    coverage_py_interop = "coverage_stats.reporters.coverage_py_interop.CoveragePyInterop"
 
     def __init__(self, precision: int = 1) -> None:
         self.precision = precision
