@@ -38,6 +38,29 @@ class CoveragePyInterop:
       derive line coverage when in arc (--cov-branch) mode.
     """
 
+    _COVERAGE_MIN_VERSION = (7, 0)
+
+    def _check_coverage_version(self) -> bool:
+        """Return True if coverage.py is installed and meets the minimum supported version.
+
+        Emits a warning and returns False when coverage.py is too old, so callers
+        can skip injection rather than hitting confusing AttributeErrors.
+        """
+        try:
+            import coverage
+            parts = coverage.__version__.split(".")[:2]
+            ver = tuple(int(x) for x in parts if x.isdigit())
+            if ver < self._COVERAGE_MIN_VERSION:
+                warnings.warn(
+                    f"coverage-stats: coverage.py {coverage.__version__} is below the "
+                    f"minimum supported version {'.'.join(map(str, self._COVERAGE_MIN_VERSION))}; "
+                    "interop disabled"
+                )
+                return False
+            return True
+        except ImportError:
+            return False
+
     def compute_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
         """Compute the (from_line, to_line) arc pairs that were actually traversed.
 
@@ -250,12 +273,20 @@ class CoveragePyInterop:
         independent: our data is always present in the CoverageData object at
         the exact moment it is flushed to disk.
         """
+        if not self._check_coverage_version():
+            return
         try:
             import coverage as coverage_module
         except ImportError:
             return
+        if not hasattr(coverage_module.Coverage, "current"):
+            warnings.warn("coverage-stats: coverage.py API changed (Coverage.current missing) — interop skipped")
+            return
         cov = coverage_module.Coverage.current()
         if cov is None:
+            return
+        if not hasattr(cov, "get_data") or not hasattr(cov, "save"):
+            warnings.warn("coverage-stats: coverage.py API changed (Coverage.get_data/save missing) — interop skipped")
             return
         interop = self
         _orig_save = cov.save
@@ -265,14 +296,16 @@ class CoveragePyInterop:
             try:
                 flush_pre_test_lines()
                 data = cov.get_data()
-                if data.has_arcs():
+                if not hasattr(data, "has_arcs") or not hasattr(data, "add_lines") or not hasattr(data, "add_arcs"):
+                    warnings.warn("coverage-stats: coverage.py CoverageData API changed — interop skipped")
+                elif data.has_arcs():
                     arcs = interop.full_arcs_for_store(store)
                     if arcs:
                         data.add_arcs(arcs)
                 else:
                     data.add_lines(store.lines_by_file())
             except Exception as exc:
-                warnings.warn(f"coverage-stats: failed to inject data into coverage.py (1): {exc}")
+                warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")
             return _orig_save(*args, **kwargs)
 
         cov.save = _save_with_injection  # type: ignore[assignment]
@@ -286,15 +319,26 @@ class CoveragePyInterop:
         which covers pytest-cov 7+ that saves inside a pytest_runtestloop
         wrapper.
         """
+        if not self._check_coverage_version():
+            return
         try:
             import coverage as coverage_module
         except ImportError:
             return
+        if not hasattr(coverage_module.Coverage, "current"):
+            warnings.warn("coverage-stats: coverage.py API changed (Coverage.current missing) — interop skipped")
+            return
         cov = coverage_module.Coverage.current()
         if cov is None:
             return
+        if not hasattr(cov, "get_data"):
+            warnings.warn("coverage-stats: coverage.py API changed (Coverage.get_data missing) — interop skipped")
+            return
         try:
             data = cov.get_data()
+            if not hasattr(data, "has_arcs") or not hasattr(data, "add_lines") or not hasattr(data, "add_arcs"):
+                warnings.warn("coverage-stats: coverage.py CoverageData API changed — interop skipped")
+                return
             if data.has_arcs():
                 arcs = self.full_arcs_for_store(store)
                 if arcs:
@@ -302,4 +346,4 @@ class CoveragePyInterop:
             else:
                 data.add_lines(store.lines_by_file())
         except Exception as exc:
-            warnings.warn(f"coverage-stats: failed to inject data into coverage.py (2): {exc}")
+            warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")

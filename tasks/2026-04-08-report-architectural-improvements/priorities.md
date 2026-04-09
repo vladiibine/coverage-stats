@@ -15,7 +15,7 @@
 | 1.1 Split `plugin.py` | Medium-High | High (maintainability + testability) | **P2** | not started |
 | 2.4 Cache parsed ASTs | Medium | Medium (perf for reporting phase) | **P2** | not started |
 | 3.2 Deduplicate branch walking | Medium | Medium (maintainability) | **P2** | not started |
-| 4.1 Coverage.py version guarding | Low | Medium (robustness) | **P2** | not started |
+| 4.1 Coverage.py version guarding | Low | Medium (robustness) | **P2** | done |
 | 3.1 Pluggable branch analyzer | Medium | Medium (extensibility) | **P3** | not started |
 | 4.2 Tracer displacement detection | Low | Low (diagnostics) | **P3** | not started |
 | 4.3 Tool ID fallback warnings | Low | Low (correctness) | **P3** | not started |
