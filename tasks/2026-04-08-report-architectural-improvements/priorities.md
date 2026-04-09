@@ -11,7 +11,7 @@
 | 1.3 Remove `assert_counter.py` | Low | Low (simplicity) | **P1** | done |
 | 1.4 Single-pass `FolderNode` aggregation | Low | Medium (perf for large codebases) | **P1** | done |
 | 1.2 Break up `report_data.py` | Medium | High (maintainability) | **P1** | done |
-| 5.1 Public iteration API on `SessionStore` | Low | Medium (encapsulation) | **P2** | not started |
+| 5.1 Public iteration API on `SessionStore` | Low | Medium (encapsulation) | **P2** | done |
 | 1.1 Split `plugin.py` | Medium-High | High (maintainability + testability) | **P2** | not started |
 | 2.4 Cache parsed ASTs | Medium | Medium (perf for reporting phase) | **P2** | not started |
 | 3.2 Deduplicate branch walking | Medium | Medium (maintainability) | **P2** | not started |

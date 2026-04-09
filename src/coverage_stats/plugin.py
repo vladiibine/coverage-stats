@@ -110,7 +110,7 @@ def _flush_pre_test_lines(ctx: ProfilerContext, store: SessionStore) -> None:
     module-level code should not penalise deliberate coverage.
     """
     for key in ctx.pre_test_lines:
-        if key not in store._data:
+        if key not in store:
             ld = store.get_or_create(key)
             ld.incidental_executions = 1
             ld.deliberate_executions = 1

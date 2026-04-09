@@ -230,10 +230,7 @@ class CoveragePyInterop:
         Returns the full set of arcs (entry/exit + sequential + branch) needed
         when coverage.py is in branch mode and add_lines() cannot be used.
         """
-        files: dict[str, dict[int, LineData]] = {}
-        for (path, lineno), ld in store._data.items():
-            files.setdefault(path, {})[lineno] = ld
-        return {path: self.compute_full_arcs(path, line_data) for path, line_data in files.items()}
+        return {path: self.compute_full_arcs(path, line_data) for path, line_data in store.files().items()}
 
     def patch_coverage_save(
         self,

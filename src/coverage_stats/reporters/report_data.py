@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Protocol
 
@@ -44,27 +43,12 @@ class DefaultReportBuilder:
 
     def build(self, store: SessionStore, config: pytest.Config) -> CoverageReport:
         """Build a CoverageReport from the session store and pytest config."""
-        # Group store data by relative path
-        files: dict[str, dict[int, LineData]] = defaultdict(dict)
-        for (abs_path, lineno), ld in store._data.items():
-            try:
-                rel = Path(abs_path).relative_to(config.rootpath).as_posix()
-            except ValueError:
-                rel = Path(abs_path).as_posix()
-            files[rel][lineno] = ld
-
-        # Build abs_path map
-        abs_path_map: dict[str, str] = {}
-        for (abs_path, _lineno) in store._data.keys():
-            try:
-                rel = Path(abs_path).relative_to(config.rootpath).as_posix()
-            except ValueError:
-                rel = Path(abs_path).as_posix()
-            abs_path_map[rel] = abs_path
-
         file_reports: list[FileReport] = []
-        for rel_path, line_data in files.items():
-            abs_path = abs_path_map.get(rel_path, rel_path)
+        for abs_path, line_data in store.files().items():
+            try:
+                rel_path = Path(abs_path).relative_to(config.rootpath).as_posix()
+            except ValueError:
+                rel_path = Path(abs_path).as_posix()
 
             try:
                 source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Iterator
 
 # slots=True (Python 3.10+) eliminates __dict__ per instance and speeds up
 # attribute access.  LineData is allocated once per unique (path, lineno) pair
@@ -24,12 +25,26 @@ class SessionStore:
     def __init__(self) -> None:
         # defaultdict reduces get_or_create to a single dict lookup on both hit
         # and miss (vs. two lookups with the previous `if key not in` pattern).
-        # __contains__ / `in` checks do NOT trigger __missing__, so existing code
-        # that guards with `if key not in store._data` remains correct.
+        # __contains__ / `in` checks do NOT trigger __missing__, so `key not in store`
+        # remains safe.
         self._data: defaultdict[tuple[str, int], LineData] = defaultdict(LineData)
 
     def get_or_create(self, key: tuple[str, int]) -> LineData:
         return self._data[key]
+
+    def items(self) -> Iterator[tuple[tuple[str, int], LineData]]:
+        """Iterate over all (path, lineno) → LineData entries."""
+        return iter(self._data.items())
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def files(self) -> dict[str, dict[int, LineData]]:
+        """Return line data grouped by file path."""
+        result: dict[str, dict[int, LineData]] = {}
+        for (path, lineno), ld in self._data.items():
+            result.setdefault(path, {})[lineno] = ld
+        return result
 
     def merge(self, other: SessionStore) -> None:
         for key, other_ld in other._data.items():

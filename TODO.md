@@ -45,8 +45,14 @@ REPORTING:
   * [v] summary per folder, in index.html
 
 Non-functional requirements:
-  * split HtmlReporter - getting too big. Idea: HtmlIndexReporter + HtmlFileReporter (exposed as attrs on HtmlReporter, so user can customize just 1 class, so we don't get too many customization options). Also split the calculation part from the HTML part
-    * also idea: Maybe for the entire customization process we can provide just 1 option: CoverageStatsConfig, with get_<feature>_class() for customizing feature X.
+  * [v] split HtmlReporter - getting too big. Idea: HtmlIndexReporter + HtmlFileReporter (exposed as attrs on HtmlReporter, so user can customize just 1 class, so we don't get too many customization options). Also split the calculation part from the HTML part
+    * [v] also idea: Maybe for the entire customization process we can provide just 1 option: CoverageStatsConfig, with get_<feature>_class() for customizing feature X.
+    * SO:
+      * adjust the --coverage-stats-report-builder
+      * [v] adjust the protocol file  
+      * [v] split it in 2 classes (well 3, with the caller)
+      * [v] The HTML report builder is not at all configurable, just the thing the creates the data for it. Fix!
+      * [v] report builder - there are module level functions in the modules, but they're used only in tests; move them into the test files!
   * clone some open source projects, run its tests, check the coverage for it 
   * publish on pypi
   * [v] make it extensible (allow plugging into the stats collection)
