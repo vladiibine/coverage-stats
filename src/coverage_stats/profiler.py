@@ -31,6 +31,10 @@ class ProfilerContext:
     # and read on every line event.  Storing it here avoids a getattr() on every
     # line event in the tracer hot path.
     current_covers_lines: frozenset[tuple[str, int]] = field(default_factory=frozenset)
+    # When True, distribute_asserts records the test node ID string in LineData in
+    # addition to incrementing the integer count.  Off by default to avoid the
+    # memory overhead of storing sets of strings for every covered line.
+    track_test_ids: bool = False
 
     def record_assertion(self) -> None:
         """Increment the assert counter when an assertion passes during the call phase."""
@@ -41,16 +45,25 @@ class ProfilerContext:
         """Distribute accumulated assert count to every line executed this test, then reset."""
         covers_lines = self.current_covers_lines
         count = self.current_assert_count
+        nodeid: str | None = (
+            self.current_test_item.nodeid
+            if self.track_test_ids and self.current_test_item is not None
+            else None
+        )
         for key in self.current_test_lines:
             ld = store.get_or_create(key)
             if key in covers_lines:
                 if count:
                     ld.deliberate_asserts += count
                 ld.deliberate_tests += 1
+                if nodeid is not None:
+                    ld.deliberate_test_ids.add(nodeid)
             else:
                 if count:
                     ld.incidental_asserts += count
                 ld.incidental_tests += 1
+                if nodeid is not None:
+                    ld.incidental_test_ids.add(nodeid)
         self.current_assert_count = 0
         self.current_test_lines.clear()
 

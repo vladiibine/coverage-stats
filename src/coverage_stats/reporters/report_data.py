@@ -123,6 +123,8 @@ class DefaultReportBuilder:
                     deliberate_asserts=line_entry.deliberate_asserts if line_entry else 0,
                     incidental_tests=line_entry.incidental_tests if line_entry else 0,
                     deliberate_tests=line_entry.deliberate_tests if line_entry else 0,
+                    incidental_test_ids=frozenset(line_entry.incidental_test_ids) if line_entry else frozenset(),
+                    deliberate_test_ids=frozenset(line_entry.deliberate_test_ids) if line_entry else frozenset(),
                 ))
 
             file_reports.append(FileReport(summary=summary, lines=line_reports))

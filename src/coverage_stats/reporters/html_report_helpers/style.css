@@ -115,6 +115,23 @@ a {
 .col-controls input[type="checkbox"] {
     cursor: pointer;
 }
+/* Test ID expandable list (shown when --coverage-stats-track-test-ids is on) */
+td details summary {
+    cursor: pointer;
+    user-select: none;
+    display: inline;
+}
+.test-id-list {
+    margin: 0.3rem 0 0 0;
+    padding-left: 0;
+    list-style: none;
+    font-size: 0.75em;
+    white-space: nowrap;
+    color: #444;
+}
+.test-id-list li {
+    padding: 0.05rem 0;
+}
 /* Sortable column headers */
 th.sortable {
     cursor: pointer;

@@ -444,8 +444,11 @@ def test_render_line_missed_executable_gets_missed_class():
 def test_render_line_non_executable_no_class():
     ld = _make_ld(de=1)
     result = HtmlReporter().render_line(3, "# comment", ld, executable=False)
-    assert 'class=' not in result
-    assert "<tr>" in result
+    # The row itself must not carry a coverage class; hidden columns may have class="col-hidden"
+    assert result.startswith("<tr>")
+    assert 'class="deliberate"' not in result
+    assert 'class="incidental"' not in result
+    assert 'class="missed"' not in result
 
 
 @covers(HtmlReporter.render_line)
@@ -808,8 +811,10 @@ _FILE_TOGGLEABLE_COLS = {
     "del-exec": "Del. Executions",
     "inc-asserts": "Inc. Asserts",
     "del-asserts": "Del. Asserts",
-    "inc-tests": "Inc. Tests",
-    "del-tests": "Del. Tests",
+    "inc-tests": "# Inc. Tests",
+    "del-tests": "# Del. Tests",
+    "inc-test-ids": "Inc. Test IDs",
+    "del-test-ids": "Del. Test IDs",
 }
 
 
@@ -889,20 +894,27 @@ def test_file_col_controls_has_checkbox_for_every_toggleable_column():
 
 
 @covers(HtmlReporter.render_file_page)
-def test_file_all_checkboxes_checked_by_default():
-    """All column checkboxes on the file page must start checked."""
+def test_file_checkbox_checked_state_matches_python_defaults():
+    """Checkboxes must be pre-checked iff FILE_COLUMNS[col] is True."""
     import re
+    from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
     html = HtmlReporter().render_file_page("src/foo.py", "", "")
     checkboxes = re.findall(r'<input[^>]+type="checkbox"[^>]*>', html)
     for cb in checkboxes:
-        assert re.search(r'\schecked\s*>', cb), f"checkbox not checked by default: {cb}"
+        col = re.search(r'value="([^"]+)"', cb)
+        assert col, f"checkbox has no value: {cb}"
+        expected_checked = FilePageReporter.FILE_COLUMNS.get(col.group(1), True)
+        is_checked = bool(re.search(r'\schecked\b', cb))
+        assert is_checked == expected_checked, (
+            f"column '{col.group(1)}': expected checked={expected_checked}, got checked={is_checked}"
+        )
 
 
 @covers(HtmlReporter.render_file_page)
 def test_file_each_toggleable_column_has_data_col_on_header():
     html = HtmlReporter().render_file_page("src/foo.py", "", "")
     for col_id in _FILE_TOGGLEABLE_COLS:
-        assert f'<th data-col="{col_id}">' in html, f"th data-col='{col_id}' missing from file page header"
+        assert f'data-col="{col_id}"' in html, f"th data-col='{col_id}' missing from file page header"
 
 
 @covers(HtmlReporter.render_line)
@@ -918,12 +930,20 @@ def test_file_each_toggleable_column_has_data_col_on_data_cells():
 
 
 @covers(HtmlReporter.render_file_page)
-def test_file_no_col_hidden_class_by_default():
-    """No column should be hidden in the static HTML — hiding is applied by JS from localStorage.
-    We check only the <body> since the CSS itself contains the .col-hidden rule as text."""
+def test_file_col_hidden_matches_python_defaults():
+    """True columns must not carry col-hidden; False columns must carry col-hidden."""
+    from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
     html = HtmlReporter().render_file_page("src/foo.py", "", "")
     body = html[html.index("<body>"):]
-    assert "col-hidden" not in body
+    for col_id, visible in FilePageReporter.FILE_COLUMNS.items():
+        if visible:
+            assert f'data-col="{col_id}" class="col-hidden"' not in body, (
+                f"column '{col_id}' is True but has col-hidden"
+            )
+        else:
+            assert f'data-col="{col_id}" class="col-hidden"' in body, (
+                f"column '{col_id}' is False but missing col-hidden"
+            )
 
 
 @covers(HtmlReporter.render_index_page, HtmlReporter.render_file_page)
@@ -1163,7 +1183,11 @@ def test_render_line_non_executable_with_ranges_no_lvl_class():
     }
     html = HtmlReporter().render_line(1, "# comment", ld, executable=False, _ranges=ranges)
     assert "lvl-" not in html
-    assert 'class=' not in html
+    # The row itself has no coverage class; hidden-by-default columns carry class="col-hidden"
+    assert html.startswith("<tr>")
+    assert 'class="deliberate"' not in html
+    assert 'class="incidental"' not in html
+    assert 'class="missed"' not in html
 
 
 @covers(HtmlReporter.render_line)

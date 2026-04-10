@@ -20,6 +20,8 @@ class FilePageReporter(HtmlReporterMixin):
         "del-asserts": True,
         "inc-tests": True,
         "del-tests": True,
+        "inc-test-ids": False,
+        "del-test-ids": False,
     }
 
     # Human-readable labels for each column's checkbox. Override to rename.
@@ -28,8 +30,10 @@ class FilePageReporter(HtmlReporterMixin):
         "del-exec": "Del. Executions",
         "inc-asserts": "Inc. Asserts",
         "del-asserts": "Del. Asserts",
-        "inc-tests": "Inc. Tests",
-        "del-tests": "Del. Tests",
+        "inc-tests": "# Inc. Tests",
+        "del-tests": "# Del. Tests",
+        "inc-test-ids": "Inc. Test IDs",
+        "del-test-ids": "Del. Test IDs",
     }
 
     # Descriptions shown as tooltips on checkbox labels and in the help popup.
@@ -50,7 +54,65 @@ class FilePageReporter(HtmlReporterMixin):
         ),
         "inc-tests": "Number of distinct incidental tests that executed this line.",
         "del-tests": "Number of distinct deliberate tests that executed this line.",
+        "inc-test-ids": (
+            "Node IDs of all incidental tests that executed this line. "
+            "Only populated when --coverage-stats-track-test-ids is enabled."
+        ),
+        "del-test-ids": (
+            "Node IDs of all deliberate tests that executed this line. "
+            "Only populated when --coverage-stats-track-test-ids is enabled."
+        ),
     }
+
+    def _render_test_ids_cell(
+        self, col: str, val: int, test_ids: set[str] | frozenset[str],
+        _ranges: dict[str, float] | None,
+    ) -> str:
+        """Render a test-count cell with an optional expandable list of test node IDs.
+
+        When *test_ids* is non-empty (i.e. --coverage-stats-track-test-ids was on),
+        the count is wrapped in a <details> element so the user can expand it to see
+        the full list of test node IDs.  When empty, just the integer count is shown.
+        """
+        classes: list[str] = []
+        fc = self.FILE_COLUMNS
+        if not fc.get(col, True):
+            classes.append("col-hidden")
+        if _ranges is not None:
+            classes.append(f"lvl-{self._bucket_level(val, _ranges.get(col, 0.0))}")
+        cls = f' class="{" ".join(classes)}"' if classes else ""
+        if test_ids:
+            items = "".join(
+                f'<li>{_html.escape(tid)}</li>' for tid in sorted(test_ids)
+            )
+            content = (
+                f'<details>'
+                f'<summary>{val}</summary>'
+                f'<ul class="test-id-list">{items}</ul>'
+                f'</details>'
+            )
+        else:
+            content = str(val)
+        return f'<td data-col="{col}"{cls}>{content}</td>'
+
+    def _render_test_id_list_cell(self, col: str, test_ids: set[str] | frozenset[str]) -> str:
+        """Render a dedicated test-ID list cell (inc-test-ids / del-test-ids columns).
+
+        Unlike _render_test_ids_cell, no <details> wrapper is used — the column
+        exists solely to display the IDs, so the list is shown directly.
+        The cell is empty when IDs are not tracked.
+        """
+        classes: list[str] = []
+        fc = self.FILE_COLUMNS
+        if not fc.get(col, True):
+            classes.append("col-hidden")
+        cls = f' class="{" ".join(classes)}"' if classes else ""
+        if test_ids:
+            items = "".join(f'<li>{_html.escape(tid)}</li>' for tid in sorted(test_ids))
+            content = f'<ul class="test-id-list">{items}</ul>'
+        else:
+            content = ""
+        return f'<td data-col="{col}"{cls}>{content}</td>'
 
     def _collect_file_ranges(self, lines: list[LineReport]) -> dict[str, float]:
         """Find the max value per file-page column across all executable lines."""
@@ -128,6 +190,8 @@ class FilePageReporter(HtmlReporterMixin):
                 f'<td data-col="del-asserts"{c("del-asserts", fc)}></td>'
                 f'<td data-col="inc-tests"{c("inc-tests", fc)}></td>'
                 f'<td data-col="del-tests"{c("del-tests", fc)}></td>'
+                f'<td data-col="inc-test-ids"{c("inc-test-ids", fc)}></td>'
+                f'<td data-col="del-test-ids"{c("del-test-ids", fc)}></td>'
                 f'</tr>'
             )
 
@@ -157,6 +221,9 @@ class FilePageReporter(HtmlReporterMixin):
             css_class = "missed"
             ie = de = ia = da = it_ = dt_ = 0
 
+        iids: set[str] = ld.incidental_test_ids if ld is not None else set()
+        dids: set[str] = ld.deliberate_test_ids if ld is not None else set()
+
         def cell(col: str, val: int) -> str:
             classes: list[str] = []
             if not fc.get(col, True):
@@ -175,8 +242,10 @@ class FilePageReporter(HtmlReporterMixin):
             + cell("del-exec", de)
             + cell("inc-asserts", ia)
             + cell("del-asserts", da)
-            + cell("inc-tests", it_)
-            + cell("del-tests", dt_)
+            + self._render_test_ids_cell("inc-tests", it_, iids, _ranges)
+            + self._render_test_ids_cell("del-tests", dt_, dids, _ranges)
+            + self._render_test_id_list_cell("inc-test-ids", iids)
+            + self._render_test_id_list_cell("del-test-ids", dids)
             + '</tr>'
         )
 
@@ -213,8 +282,10 @@ class FilePageReporter(HtmlReporterMixin):
             f'<th data-col="del-exec"{c("del-exec", fc)}>Deliberate Executions</th>'
             f'<th data-col="inc-asserts"{c("inc-asserts", fc)}>Incidental Asserts</th>'
             f'<th data-col="del-asserts"{c("del-asserts", fc)}>Deliberate Asserts</th>'
-            f'<th data-col="inc-tests"{c("inc-tests", fc)}>Incidental Tests</th>'
-            f'<th data-col="del-tests"{c("del-tests", fc)}>Deliberate Tests</th>'
+            f'<th data-col="inc-tests"{c("inc-tests", fc)}># Incidental Tests</th>'
+            f'<th data-col="del-tests"{c("del-tests", fc)}># Deliberate Tests</th>'
+            f'<th data-col="inc-test-ids"{c("inc-test-ids", fc)}>Incidental Test IDs</th>'
+            f'<th data-col="del-test-ids"{c("del-test-ids", fc)}>Deliberate Test IDs</th>'
             f'</tr></thead>'
             f'<tbody>{lines_html}</tbody>'
             f'</table>'
@@ -243,6 +314,8 @@ class FilePageReporter(HtmlReporterMixin):
                     deliberate_asserts=lr.deliberate_asserts,
                     incidental_tests=lr.incidental_tests,
                     deliberate_tests=lr.deliberate_tests,
+                    incidental_test_ids=set(lr.incidental_test_ids),
+                    deliberate_test_ids=set(lr.deliberate_test_ids),
                 )
             rows.append(self.render_line(
                 lr.lineno, lr.source_text, ld, lr.executable,

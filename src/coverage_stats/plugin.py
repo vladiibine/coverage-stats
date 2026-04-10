@@ -58,6 +58,9 @@ class CoverageStatsCustomization:
             else int(config.getini("coverage_stats_precision") or 1)
         )
         self.coverage_py_active: bool = config.pluginmanager.hasplugin("pytest_cov")
+        track_ids_opt = config.getoption("--coverage-stats-track-test-ids", default=False)
+        track_ids_ini = config.getini("coverage_stats_track_test_ids")
+        self.track_test_ids: bool = bool(track_ids_opt) or str(track_ids_ini).lower() in ("true", "1", "yes")
 
     def _load_class(self, dotted_path: str) -> type:
         module_path, sep, class_name = dotted_path.rpartition(".")
@@ -74,7 +77,7 @@ class CoverageStatsCustomization:
 
     def get_profiler_context(self, source_dirs: list[str]) -> ProfilerContext:
         cls: type[ProfilerContext] = self._load_class(self.profiler_context)
-        return cls(source_dirs=source_dirs)
+        return cls(source_dirs=source_dirs, track_test_ids=self.track_test_ids)
 
     def get_line_tracer(self, context: ProfilerContext, store: SessionStore) -> LineTracer:
         cls: type[LineTracer] = self._load_class(self.line_tracer)
@@ -295,6 +298,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "coverage_stats_customization",
         help=f"CoverageStatsCustomization class to use (module.path.ClassName, default: {_DEFAULT_CUSTOMIZATION})",
         default=_DEFAULT_CUSTOMIZATION,
+    )
+    parser.addoption(
+        "--coverage-stats-track-test-ids",
+        action="store_true",
+        default=False,
+        help="Track the exact test node IDs that executed each line (increases memory usage).",
+    )
+    parser.addini(
+        "coverage_stats_track_test_ids",
+        help="Track the exact test node IDs that executed each line (true/false, default: false).",
+        default="false",
     )
 
 

@@ -1,3 +1,5 @@
+import pytest
+
 from coverage_stats import covers
 from asdf import (
     double_sum, multiply_sum, foo_sum, weird_corner_cases_1_while_loop_, weird_corner_cases_2_for_loop,
@@ -34,7 +36,8 @@ def test_weird_corner_cases_1():
     weird_corner_cases_1_while_loop_([1, 2, 3], 2)
 
 
-def test_weird_corner_cases_2():
+@pytest.mark.parametrize("a,b", [(1, 2), (3, 4)])
+def test_weird_corner_cases_2(a, b):
     assert weird_corner_cases_2_for_loop([1, 3, ], []) == 15
 
 def test_weird_case_multiple_statements_on_one_line():

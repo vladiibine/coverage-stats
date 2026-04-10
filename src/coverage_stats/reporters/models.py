@@ -35,6 +35,9 @@ class LineReport:
     deliberate_asserts: int
     incidental_tests: int
     deliberate_tests: int
+    # Populated only when --coverage-stats-track-test-ids is enabled; empty otherwise.
+    incidental_test_ids: frozenset[str] = field(default_factory=frozenset)
+    deliberate_test_ids: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
-from typing import Iterator
+from dataclasses import dataclass, field
+from typing import Any, Iterator
 
 # slots=True (Python 3.10+) eliminates __dict__ per instance and speeds up
 # attribute access.  LineData is allocated once per unique (path, lineno) pair
@@ -19,6 +19,9 @@ class LineData:
     deliberate_asserts: int = 0
     incidental_tests: int = 0
     deliberate_tests: int = 0
+    # Only populated when --coverage-stats-track-test-ids is enabled.
+    incidental_test_ids: set[str] = field(default_factory=set)
+    deliberate_test_ids: set[str] = field(default_factory=set)
 
 
 class SessionStore:
@@ -55,10 +58,21 @@ class SessionStore:
             ld.deliberate_asserts += other_ld.deliberate_asserts
             ld.incidental_tests += other_ld.incidental_tests
             ld.deliberate_tests += other_ld.deliberate_tests
+            ld.incidental_test_ids |= other_ld.incidental_test_ids
+            ld.deliberate_test_ids |= other_ld.deliberate_test_ids
 
-    def to_dict(self) -> dict[str, list[int]]:
-        return {
-            f"{path}\x00{lineno}": [
+    def to_dict(self) -> dict[str, list[int | list[str]]]:
+        """Serialise the store to a JSON-safe dict.
+
+        Format: ``{path\\x00lineno: [inc_exec, del_exec, inc_assert, del_assert,
+        inc_tests, del_tests, [inc_ids...], [del_ids...]]}``
+
+        The last two elements (ID lists) are omitted when both are empty, so the
+        format is backward-compatible with older readers that only expect 6 ints.
+        """
+        result: dict[str, list[int | list[str]]] = {}
+        for (path, lineno), ld in self._data.items():
+            entry: list[int | list[str]] = [
                 ld.incidental_executions,
                 ld.deliberate_executions,
                 ld.incidental_asserts,
@@ -66,8 +80,11 @@ class SessionStore:
                 ld.incidental_tests,
                 ld.deliberate_tests,
             ]
-            for (path, lineno), ld in self._data.items()
-        }
+            if ld.incidental_test_ids or ld.deliberate_test_ids:
+                entry.append(sorted(ld.incidental_test_ids))
+                entry.append(sorted(ld.deliberate_test_ids))
+            result[f"{path}\x00{lineno}"] = entry
+        return result
 
     def lines_by_file(self) -> dict[str, list[int]]:
         """Return executed line numbers grouped by file path.
@@ -82,7 +99,12 @@ class SessionStore:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, list[int]]) -> SessionStore:
+    def from_dict(cls, data: dict[str, Any]) -> SessionStore:
+        """Deserialise a store from the dict produced by ``to_dict()``.
+
+        Backward-compatible: values with only 6 elements (old format without IDs)
+        deserialise cleanly with empty ID sets.
+        """
         store = cls()
         for raw_key, values in data.items():
             path, lineno_str = raw_key.split("\x00", 1)
@@ -94,4 +116,10 @@ class SessionStore:
             ld.deliberate_asserts = values[3]
             ld.incidental_tests = values[4] if len(values) > 4 else 0
             ld.deliberate_tests = values[5] if len(values) > 5 else 0
+            ld.incidental_test_ids = (
+                set(values[6]) if len(values) > 6 and isinstance(values[6], list) else set()
+            )
+            ld.deliberate_test_ids = (
+                set(values[7]) if len(values) > 7 and isinstance(values[7], list) else set()
+            )
         return store
