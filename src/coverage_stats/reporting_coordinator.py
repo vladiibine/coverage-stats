@@ -45,7 +45,11 @@ class ReportingCoordinator:
         raw = getattr(node, "workeroutput", {}).get("coverage_stats_data")
         if raw:
             assert self._store is not None
-            worker_store = type(self._store).from_dict(json.loads(raw))
+            try:
+                worker_store = type(self._store).from_dict(json.loads(raw))
+            except Exception as exc:
+                warnings.warn(f"coverage-stats: failed to deserialise worker store: {exc}")
+                return
             self._store.merge(worker_store)
 
     @pytest.hookimpl(tryfirst=True)

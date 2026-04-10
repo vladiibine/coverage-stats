@@ -16,10 +16,10 @@
 | 2.4 Cache parsed ASTs | Medium | Medium (perf for reporting phase) | **P2** | done        |
 | 3.2 Deduplicate branch walking | Medium | Medium (maintainability) | **P2** | done        |
 | 4.1 Coverage.py version guarding | Low | Medium (robustness) | **P2** | done        |
-| 3.1 Pluggable branch analyzer | Medium | Medium (extensibility) | **P3** | not started |
-| 4.2 Tracer displacement detection | Low | Low (diagnostics) | **P3** | not started |
+| 3.1 Pluggable branch analyzer | Medium | Medium (extensibility) | **P3** | wont-fix    |
+| 4.2 Tracer displacement detection | Low | Low (diagnostics) | **P3** | wont-fix    |
 | 4.3 Tool ID fallback warnings | Low | Low (correctness) | **P3** | not started |
-| 6.1 Unit tests for plugin | Medium | Medium (test coverage) | **P3** | not started |
+| 6.1 Unit tests for plugin | Medium | Medium (test coverage) | **P3** | done        |
 | 6.2 Performance benchmarks | Medium | Medium (regression prevention) | **P3** | done        |
 | 3.3 Event-based lifecycle | High | Low (premature unless needed) | **P4** | not started |
 | 4.4 Thread safety docs | Low | Low (documentation) | **P4** | not started |
