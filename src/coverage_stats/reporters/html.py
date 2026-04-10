@@ -99,39 +99,3 @@ class HtmlReporter:
         return self.get_file_reporter()._write_file_page(file_report, out_path)  # type: ignore[arg-type]
 
 
-# ---------------------------------------------------------------------------
-# Module-level shims — delegate to default instances so that existing call
-# sites (including tests) continue to work unchanged.
-# ---------------------------------------------------------------------------
-
-def write_html(report: CoverageReport, output_dir: Path, precision: int = 1) -> None:
-    HtmlReporter(precision=precision).write(report, output_dir)
-
-
-def render_line(lineno: int, source_text: str, ld: LineData | None, executable: bool,
-                partial: bool = False) -> str:
-    return FilePageReporter().render_line(lineno, source_text, ld, executable, partial)
-
-
-def render_file_stats(total_stmts: int, covered: int, total_pct: float,
-                      deliberate_cnt: int, deliberate_pct: float,
-                      incidental_cnt: int, incidental_pct: float,
-                      partial_cnt: int = 0, precision: int = 1) -> str:
-    return FilePageReporter(precision=precision).render_file_stats(
-        total_stmts, covered, total_pct,
-        deliberate_cnt, deliberate_pct,
-        incidental_cnt, incidental_pct,
-        partial_cnt,
-    )
-
-
-def render_index_page(rows_html: str) -> str:
-    return IndexPageReporter().render_index_page(rows_html)
-
-
-def render_file_page(rel_path: str, stats_html: str, lines_html: str) -> str:
-    return FilePageReporter().render_file_page(rel_path, stats_html, lines_html)
-
-
-def _render_tree_rows(node: FolderNode, depth: int, parent_id: str, precision: int = 1) -> list[str]:
-    return IndexPageReporter(precision=precision)._render_tree_rows(node, depth, parent_id)

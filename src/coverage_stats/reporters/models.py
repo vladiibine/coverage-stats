@@ -4,11 +4,6 @@ import ast
 from dataclasses import dataclass, field
 
 
-def _pct(numerator: int, denominator: int) -> float:
-    """Coverage percentage; returns 100.0 when denominator is 0 (nothing to cover)."""
-    return numerator / denominator * 100.0 if denominator else 100.0
-
-
 def _is_wildcard_case(case: ast.match_case) -> bool:
     """Mirror coverage.py's wildcard detection logic for match-case statements."""
     pattern = case.pattern
@@ -160,9 +155,9 @@ class FolderNode:
         denom = agg.total_stmts + agg.arcs_total
         return IndexRowData(
             total_stmts=denom,
-            total_pct=_pct(agg.total_covered + agg.arcs_covered, denom),
-            deliberate_pct=_pct(agg.deliberate + agg.arcs_deliberate, denom),
-            incidental_pct=_pct(agg.incidental + agg.arcs_incidental, denom),
+            total_pct=self._pct(agg.total_covered + agg.arcs_covered, denom),
+            deliberate_pct=self._pct(agg.deliberate + agg.arcs_deliberate, denom),
+            incidental_pct=self._pct(agg.incidental + agg.arcs_incidental, denom),
             deliberate_covered=agg.deliberate,
             incidental_covered=agg.incidental,
             incidental_asserts=agg.incidental_asserts,
@@ -170,6 +165,11 @@ class FolderNode:
             inc_assert_density=agg.incidental_asserts / denom if denom else 0.0,
             del_assert_density=agg.deliberate_asserts / denom if denom else 0.0,
         )
+
+    @staticmethod
+    def _pct(numerator: int, denominator: int) -> float:
+        """Coverage percentage; returns 100.0 when denominator is 0 (nothing to cover)."""
+        return numerator / denominator * 100.0 if denominator else 100.0
 
 
 @dataclass

@@ -3,6 +3,7 @@
 **Priority:** P2
 **Effort:** Medium-High
 **Impact:** High (maintainability + testability)
+**Status:** done
 
 ## Problem
 
@@ -64,3 +65,9 @@ Instantiates both coordinators, wires them together (sharing the same `store`), 
 5. Update import-linter contracts for the new internal modules
 
 **Note:** The pyc-cache bypass (`_read_pyc = None`) currently lives in `pytest_configure` and is restored in `pytest_collection_finish`. This is coverage.py-interop logic — consider moving it to `TracingCoordinator.__init__` and the `pytest_collection_finish` hook, or to a `CoveragePyInterop` setup method.
+
+# Vlad's comments
+1. After instantiation of certain objects, there's a lot of private attribute setting; That's what the `__init__` methods are for. Move the setting of private variables to the initializer
+2. TracingCoordinator and ReportingCoordinator - Let's not instantiate them directly, and instead load them dymanically like we load all kinds of other classes. Their fully qualified class names should be set on the Customization class, and there should be a method to create an instance of each (it's possible that this method )
+3. unrelated: the customization class, on instantiation, should receive as much context as possible. In this case, `config` is the only parameter that we can pass - so let's do that!
+4. unrelated: we should get rid of as many free functions as possible. Ideally, just the pytest plugin functions should be defined at module-level. Every other function should actually live on a class - so users can customize them by providing overrides

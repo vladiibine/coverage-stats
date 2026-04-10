@@ -5,15 +5,7 @@ from types import SimpleNamespace
 
 from coverage_stats import covers
 from coverage_stats.store import SessionStore
-from coverage_stats.reporters.html import (
-    HtmlReporter,
-    write_html,
-    render_line,
-    render_index_page,
-    render_file_page,
-    render_file_stats,
-    _render_tree_rows,
-)
+from coverage_stats.reporters.html import HtmlReporter
 from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
 from coverage_stats.reporters.html_report_helpers.index_reporter import IndexPageReporter
 from coverage_stats.reporters.base import Reporter
@@ -63,27 +55,27 @@ def make_config(rootdir: Path) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_empty_store_writes_index(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, tmp_path / "out")
+    HtmlReporter().write(report,tmp_path / "out")
     assert (tmp_path / "out" / "index.html").exists()
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_empty_store_no_per_file_pages(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     html_files = list(out_dir.glob("*.html"))
     assert html_files == [out_dir / "index.html"]
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_single_file_writes_per_file_page(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -93,11 +85,11 @@ def test_single_file_writes_per_file_page(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     assert (out_dir / "src__foo.py.html").exists()
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_index_contains_table_and_folder_row(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -107,13 +99,13 @@ def test_index_contains_table_and_folder_row(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
     assert "<table>" in content
     assert "folder-row" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_index_contains_folder_name(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -123,12 +115,12 @@ def test_index_contains_folder_name(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
     assert "src" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_multiple_folders_appear_in_single_table(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -140,13 +132,13 @@ def test_multiple_folders_appear_in_single_table(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
     assert content.count("<table>") == 1  # single table
     assert content.count('class="folder-row"') == 2  # one row per top-level folder
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_per_file_page_contains_lineno(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -156,12 +148,12 @@ def test_per_file_page_contains_lineno(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "42" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_deliberate_line_gets_green_class(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -171,12 +163,12 @@ def test_deliberate_line_gets_green_class(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "deliberate" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_incidental_only_line_gets_yellow_class(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -188,12 +180,12 @@ def test_incidental_only_line_gets_yellow_class(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
     assert "incidental" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_per_file_page_shows_all_source_lines(tmp_path):
     """All lines in the source file must appear, not just covered lines."""
     rootdir = tmp_path / "project"
@@ -208,7 +200,7 @@ def test_per_file_page_shows_all_source_lines(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     # Every line number 1-5 must appear
@@ -216,7 +208,7 @@ def test_per_file_page_shows_all_source_lines(tmp_path):
         assert f"<td>{lineno}</td>" in content, f"Line {lineno} missing from file page"
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_per_file_page_shows_uncovered_source_text(tmp_path):
     """Source text of uncovered lines must appear in the page."""
     rootdir = tmp_path / "project"
@@ -231,13 +223,13 @@ def test_per_file_page_shows_uncovered_source_text(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     assert "uncovered_line" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_uncovered_lines_have_no_highlight_class(tmp_path):
     """Lines with no coverage data must not get the 'deliberate' or 'incidental' class."""
     rootdir = tmp_path / "project"
@@ -252,7 +244,7 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "mod.py.html").read_text()
 
     # Row for uncovered line 2 should be a plain <tr> without a class attribute on it
@@ -266,7 +258,7 @@ def test_uncovered_lines_have_no_highlight_class(tmp_path):
         assert 'class="incidental"' not in row
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     """The stmt count in the index summary must equal the file's executable statements."""
     rootdir = tmp_path / "project"
@@ -282,7 +274,7 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
 
     # The index must show 10 (total executable stmts), not 2 (tracked stmts)
@@ -290,7 +282,7 @@ def test_index_stmt_count_reflects_executable_stmts_not_just_covered(tmp_path):
     assert 'data-col="stmts">2</td>' not in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     """An empty (0-byte) source file must show 0 stmts in the index even if the
     tracer recorded a phantom line-1 entry for it (Python fires an implicit trace
@@ -311,7 +303,7 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
 
     import re
@@ -322,7 +314,7 @@ def test_empty_source_file_shows_zero_stmts_in_index(tmp_path):
     assert match.group(1) == "0", f"expected 0 stmts for empty __init__.py, got {match.group(1)}"
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
     """For a file that does not exist on disk, total_stmts should fall back to
     the number of lines recorded in the store (the pre-fix behaviour for
@@ -339,14 +331,14 @@ def test_nonexistent_file_stmt_count_falls_back_to_store(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
 
     # Falls back to len(lines) = 2
     assert 'data-col="stmts">2</td>' in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_unreadable_source_falls_back_gracefully(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -358,13 +350,13 @@ def test_unreadable_source_falls_back_gracefully(tmp_path):
     out_dir = tmp_path / "out"
     # Must not raise
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     assert (out_dir / "nonexistent.py.html").exists()
     content = (out_dir / "nonexistent.py.html").read_text()
     assert "1" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_path_outside_rootdir_fallback(tmp_path):
     store = SessionStore()
     rootdir = tmp_path / "project"
@@ -374,20 +366,20 @@ def test_path_outside_rootdir_fallback(tmp_path):
     config = make_config(rootdir)
     out_dir = tmp_path / "out"
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     # index.html should exist and contain the absolute path
     content = (out_dir / "index.html").read_text()
     assert "baz.py" in content
 
 
-@covers(write_html)
+@covers(HtmlReporter.write)
 def test_output_dir_created_if_missing(tmp_path):
     store = SessionStore()
     config = make_config(tmp_path)
     out_dir = tmp_path / "nested" / "deep" / "out"
     assert not out_dir.exists()
     report = DefaultReportBuilder().build(store, config)
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
     assert (out_dir / "index.html").exists()
 
 
@@ -426,46 +418,46 @@ def _make_ld(ie=0, de=0, ia=0, da=0):
     )
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_deliberate_class():
     ld = _make_ld(de=1)
-    result = render_line(1, "x = 1", ld, executable=True)
+    result = HtmlReporter().render_line(1, "x = 1", ld, executable=True)
     assert 'class="deliberate"' in result
     assert "<td>1</td>" in result
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_incidental_class():
     ld = _make_ld(ie=2)
-    result = render_line(7, "pass", ld, executable=True)
+    result = HtmlReporter().render_line(7, "pass", ld, executable=True)
     assert 'class="incidental"' in result
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_missed_executable_gets_missed_class():
     ld = _make_ld()
-    result = render_line(3, "import os", ld, executable=True)
+    result = HtmlReporter().render_line(3, "import os", ld, executable=True)
     assert 'class="missed"' in result
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_non_executable_no_class():
     ld = _make_ld(de=1)
-    result = render_line(3, "# comment", ld, executable=False)
+    result = HtmlReporter().render_line(3, "# comment", ld, executable=False)
     assert 'class=' not in result
     assert "<tr>" in result
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_missed_class():
-    result = render_line(5, "x = 1", None, executable=True)
+    result = HtmlReporter().render_line(5, "x = 1", None, executable=True)
     assert 'class="missed"' in result
 
 
-@covers(render_line)
+@covers(HtmlReporter.render_line)
 def test_render_line_escapes_html():
     ld = _make_ld()
-    result = render_line(1, "<script>alert(1)</script>", ld, executable=True)
+    result = HtmlReporter().render_line(1, "<script>alert(1)</script>", ld, executable=True)
     assert "<script>" not in result
     assert "&lt;script&gt;" in result
 
@@ -503,28 +495,28 @@ def test_folder_node_aggregates_stats():
     assert agg.arcs_incidental == 1
 
 
-@covers(_render_tree_rows)
+@covers(HtmlReporter._render_tree_rows)
 def test_render_tree_rows_contains_link_and_folder():
     summaries = [_make_file_summary("src/foo.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=2)]
     tree = DefaultReportBuilder().build_folder_tree(summaries)
-    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    html = "".join(HtmlReporter()._render_tree_rows(tree, depth=0, parent_id=""))
     assert 'href="src__foo.py.html"' in html
     assert "foo.py" in html
     assert "src/" in html  # folder row
 
 
-@covers(_render_tree_rows)
+@covers(HtmlReporter._render_tree_rows)
 def test_render_tree_rows_pct_calculation():
     summaries = [_make_file_summary("src/x.py", total_stmts=3, total_covered=2, deliberate_covered=1, incidental_covered=0)]
     tree = DefaultReportBuilder().build_folder_tree(summaries)
-    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    html = "".join(HtmlReporter()._render_tree_rows(tree, depth=0, parent_id=""))
     assert "33.3%" in html  # 1/3 deliberate on file row
     assert "66.7%" in html  # 2/3 total on file row
 
 
-@covers(render_index_page)
+@covers(HtmlReporter.render_index_page)
 def test_render_index_page_full_html():
-    result = render_index_page("<tr><td>row</td></tr>")
+    result = HtmlReporter().render_index_page("<tr><td>row</td></tr>")
     assert "<!DOCTYPE html>" in result
     assert "<style>" in result
     assert "<script>" in result
@@ -532,9 +524,9 @@ def test_render_index_page_full_html():
     assert "<table>" in result
 
 
-@covers(render_file_page)
+@covers(HtmlReporter.render_file_page)
 def test_render_file_page_full_html():
-    result = render_file_page("src/foo.py", "<div>stats</div>", "<tr><td>42</td></tr>")
+    result = HtmlReporter().render_file_page("src/foo.py", "<div>stats</div>", "<tr><td>42</td></tr>")
     assert "<!DOCTYPE html>" in result
     assert "src/foo.py" in result
     assert "42" in result
@@ -542,9 +534,9 @@ def test_render_file_page_full_html():
     assert "<style>" in result
 
 
-@covers(render_file_stats)
+@covers(HtmlReporter.render_file_stats)
 def test_render_file_stats_shows_total_pct():
-    result = render_file_stats(
+    result = HtmlReporter().render_file_stats(
         total_stmts=10, covered=7, total_pct=70.0,
         deliberate_cnt=4, deliberate_pct=40.0,
         incidental_cnt=3, incidental_pct=30.0,
@@ -554,20 +546,20 @@ def test_render_file_stats_shows_total_pct():
 
 
 
-@covers(_render_tree_rows)
+@covers(HtmlReporter._render_tree_rows)
 def test_render_tree_rows_total_pct_column():
     summaries = [
         _make_file_summary("src/z.py", total_stmts=4, total_covered=3, deliberate_covered=2, incidental_covered=1),
     ]
     tree = DefaultReportBuilder().build_folder_tree(summaries)
-    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    html = "".join(HtmlReporter()._render_tree_rows(tree, depth=0, parent_id=""))
     assert "75.0%" in html   # 3/4 total on file row
     assert "50.0%" in html   # 2/4 deliberate on file row
 
 
-@covers(render_index_page)
+@covers(HtmlReporter.render_index_page)
 def test_index_page_has_total_pct_header():
-    result = render_index_page("")
+    result = HtmlReporter().render_index_page("")
     assert "Total %" in result
 
 
@@ -823,13 +815,13 @@ _FILE_TOGGLEABLE_COLS = {
 
 @covers(HtmlReporter.render_index_page)
 def test_index_page_has_col_controls():
-    html = render_index_page("")
+    html = HtmlReporter().render_index_page("")
     assert 'class="col-controls"' in html
 
 
 @covers(HtmlReporter.render_index_page)
 def test_index_col_controls_has_checkbox_for_every_toggleable_column():
-    html = render_index_page("")
+    html = HtmlReporter().render_index_page("")
     for col_id in _INDEX_TOGGLEABLE_COLS:
         assert f'value="{col_id}"' in html, f"checkbox for column '{col_id}' missing from index"
 
@@ -838,7 +830,7 @@ def test_index_col_controls_has_checkbox_for_every_toggleable_column():
 def test_index_checkboxes_reflect_python_defaults():
     """Checkboxes must match INDEX_COLUMNS: True → checked, False → unchecked."""
     import re
-    html = render_index_page("")
+    html = HtmlReporter().render_index_page("")
     for col_id, visible in IndexPageReporter.INDEX_COLUMNS.items():
         cb = re.search(rf'<input[^>]+value="{col_id}"[^>]*>', html)
         assert cb, f"checkbox for '{col_id}' not found"
@@ -850,17 +842,17 @@ def test_index_checkboxes_reflect_python_defaults():
 
 @covers(HtmlReporter.render_index_page)
 def test_index_each_toggleable_column_has_data_col_on_header():
-    html = render_index_page("")
+    html = HtmlReporter().render_index_page("")
     for col_id in _INDEX_TOGGLEABLE_COLS:
         assert f'<th data-col="{col_id}"' in html, f"th data-col='{col_id}' missing from index header"
 
 
-@covers(_render_tree_rows)
+@covers(HtmlReporter._render_tree_rows)
 def test_index_each_toggleable_column_has_data_col_on_data_cells():
     """Every data cell in a toggleable column must carry its data-col attribute so the JS can find it."""
     summaries = [_make_file_summary("src/a.py", total_stmts=5, total_covered=3, deliberate_covered=2, incidental_covered=1)]
     tree = DefaultReportBuilder().build_folder_tree(summaries)
-    html = "".join(_render_tree_rows(tree, depth=0, parent_id=""))
+    html = "".join(HtmlReporter()._render_tree_rows(tree, depth=0, parent_id=""))
     for col_id in _INDEX_TOGGLEABLE_COLS:
         assert f'data-col="{col_id}"' in html, f"td data-col='{col_id}' missing from index rows"
 
@@ -868,7 +860,7 @@ def test_index_each_toggleable_column_has_data_col_on_data_cells():
 @covers(HtmlReporter.render_index_page)
 def test_index_col_hidden_matches_python_defaults():
     """True columns must have no col-hidden; False columns must carry col-hidden."""
-    html = render_index_page("")
+    html = HtmlReporter().render_index_page("")
     body = html[html.index("<body>"):]
     for col_id, visible in IndexPageReporter.INDEX_COLUMNS.items():
         if visible:
@@ -883,13 +875,13 @@ def test_index_col_hidden_matches_python_defaults():
 
 @covers(HtmlReporter.render_file_page)
 def test_file_page_has_col_controls(tmp_path):
-    html = render_file_page("src/foo.py", "", "")
+    html = HtmlReporter().render_file_page("src/foo.py", "", "")
     assert 'class="col-controls"' in html
 
 
 @covers(HtmlReporter.render_file_page)
 def test_file_col_controls_has_checkbox_for_every_toggleable_column():
-    html = render_file_page("src/foo.py", "", "")
+    html = HtmlReporter().render_file_page("src/foo.py", "", "")
     for col_id in _FILE_TOGGLEABLE_COLS:
         assert f'value="{col_id}"' in html, f"checkbox for column '{col_id}' missing from file page"
 
@@ -898,7 +890,7 @@ def test_file_col_controls_has_checkbox_for_every_toggleable_column():
 def test_file_all_checkboxes_checked_by_default():
     """All column checkboxes on the file page must start checked."""
     import re
-    html = render_file_page("src/foo.py", "", "")
+    html = HtmlReporter().render_file_page("src/foo.py", "", "")
     checkboxes = re.findall(r'<input[^>]+type="checkbox"[^>]*>', html)
     for cb in checkboxes:
         assert re.search(r'\schecked\s*>', cb), f"checkbox not checked by default: {cb}"
@@ -906,7 +898,7 @@ def test_file_all_checkboxes_checked_by_default():
 
 @covers(HtmlReporter.render_file_page)
 def test_file_each_toggleable_column_has_data_col_on_header():
-    html = render_file_page("src/foo.py", "", "")
+    html = HtmlReporter().render_file_page("src/foo.py", "", "")
     for col_id in _FILE_TOGGLEABLE_COLS:
         assert f'<th data-col="{col_id}">' in html, f"th data-col='{col_id}' missing from file page header"
 
@@ -918,7 +910,7 @@ def test_file_each_toggleable_column_has_data_col_on_data_cells():
     ld = LineData(incidental_executions=1, deliberate_executions=2,
                   incidental_asserts=3, deliberate_asserts=4,
                   incidental_tests=5, deliberate_tests=6)
-    html = render_line(1, "x = 1", ld, executable=True)
+    html = HtmlReporter().render_line(1, "x = 1", ld, executable=True)
     for col_id in _FILE_TOGGLEABLE_COLS:
         assert f'data-col="{col_id}"' in html, f"td data-col='{col_id}' missing from line row"
 
@@ -927,7 +919,7 @@ def test_file_each_toggleable_column_has_data_col_on_data_cells():
 def test_file_no_col_hidden_class_by_default():
     """No column should be hidden in the static HTML — hiding is applied by JS from localStorage.
     We check only the <body> since the CSS itself contains the .col-hidden rule as text."""
-    html = render_file_page("src/foo.py", "", "")
+    html = HtmlReporter().render_file_page("src/foo.py", "", "")
     body = html[html.index("<body>"):]
     assert "col-hidden" not in body
 
@@ -938,16 +930,16 @@ def test_col_controls_checkbox_values_match_data_col_attributes():
     so that the JS toggleCol() function can find the cells to hide/show."""
     import re
 
-    index_html = render_index_page("<tr><td>x</td><td data-col='stmts'>1</td></tr>")
+    index_html = HtmlReporter().render_index_page("<tr><td>x</td><td data-col='stmts'>1</td></tr>")
     index_cb_values = set(re.findall(r'<input[^>]+type="checkbox"[^>]+value="([^"]+)"', index_html))
     index_data_cols = set(re.findall(r'data-col="([^"]+)"', index_html))
     assert index_cb_values == index_data_cols & index_cb_values, (
         f"index checkbox values {index_cb_values} not all present as data-col: {index_data_cols}"
     )
 
-    file_html = render_file_page("f.py", "", "<tr><td>1</td><td></td><td>src</td>"
-                                 + "".join(f'<td data-col="{c}">0</td>' for c in _FILE_TOGGLEABLE_COLS)
-                                 + "</tr>")
+    file_html = HtmlReporter().render_file_page("f.py", "", "<tr><td>1</td><td></td><td>src</td>"
+                                               + "".join(f'<td data-col="{c}">0</td>' for c in _FILE_TOGGLEABLE_COLS)
+                                               + "</tr>")
     file_cb_values = set(re.findall(r'<input[^>]+type="checkbox"[^>]+value="([^"]+)"', file_html))
     file_data_cols = set(re.findall(r'data-col="([^"]+)"', file_html))
     assert file_cb_values == file_data_cols & file_cb_values, (
@@ -1207,7 +1199,7 @@ def test_write_html_file_page_contains_color_classes(tmp_path):
     report = DefaultReportBuilder().build(store, config)
 
     out_dir = tmp_path / "out"
-    write_html(report, out_dir)
+    HtmlReporter().write(report,out_dir)
 
     file_html = (out_dir / "mod.py.html").read_text()
     assert "lvl-" in file_html

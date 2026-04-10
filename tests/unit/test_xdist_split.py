@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from coverage_stats.plugin import (
-    CoverageStatsPlugin,
-    _is_xdist_controller,
-    _is_xdist_worker,
-)
+from coverage_stats.covers import CoverageStatsResolver
+from coverage_stats.plugin import CoverageStatsCustomization
+from coverage_stats.profiler import LineTracer, ProfilerContext
+from coverage_stats.tracing_coordinator import TracingCoordinator
+from coverage_stats.reporting_coordinator import ReportingCoordinator
 from coverage_stats.store import SessionStore
 
 
@@ -16,9 +16,29 @@ from coverage_stats.store import SessionStore
 # ---------------------------------------------------------------------------
 
 
+def _make_stub_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        pluginmanager=SimpleNamespace(hasplugin=lambda name: False),
+        getoption=lambda name, default=None: default,
+        getini=lambda name: {"coverage_stats_precision": "1"}.get(name, ""),
+    )
+
+
+def _make_stub_customization() -> CoverageStatsCustomization:
+    return CoverageStatsCustomization(_make_stub_config())
+
+
 def _make_plugin_manager(has_xdist: bool = False):
     """Return a minimal pluginmanager stub."""
     return SimpleNamespace(hasplugin=lambda name: name == "xdist" and has_xdist)
+
+
+def _stub_getoption(name, default=None):
+    return default
+
+
+def _stub_getini(name):
+    return {"coverage_stats_precision": "1"}.get(name, "")
 
 
 def _config_worker():
@@ -27,6 +47,8 @@ def _config_worker():
         workerinput={},
         workeroutput={},
         pluginmanager=_make_plugin_manager(has_xdist=True),
+        getoption=_stub_getoption,
+        getini=_stub_getini,
     )
 
 
@@ -35,7 +57,8 @@ def _config_controller():
     return SimpleNamespace(
         pluginmanager=_make_plugin_manager(has_xdist=True),
         option=SimpleNamespace(dist="load"),
-        # Note: real controller configs do NOT have workeroutput — only workers do
+        getoption=_stub_getoption,
+        getini=_stub_getini,
     )
 
 
@@ -43,6 +66,8 @@ def _config_no_xdist():
     """Config for single-process run (no workerinput, xdist not registered)."""
     return SimpleNamespace(
         pluginmanager=_make_plugin_manager(has_xdist=False),
+        getoption=_stub_getoption,
+        getini=_stub_getini,
     )
 
 
@@ -52,45 +77,37 @@ def _config_no_xdist():
 
 
 def test_is_xdist_worker_true_when_workerinput_present():
-    config = _config_worker()
-    assert _is_xdist_worker(config) is True
+    assert CoverageStatsCustomization(_config_worker()).is_xdist_worker() is True
 
 
 def test_is_xdist_worker_false_when_no_workerinput():
-    config = _config_controller()
-    assert _is_xdist_worker(config) is False
+    assert CoverageStatsCustomization(_config_controller()).is_xdist_worker() is False
 
 
 # ---------------------------------------------------------------------------
-# _is_xdist_controller
+# is_xdist_controller
 # ---------------------------------------------------------------------------
 
 
 def test_is_xdist_controller_true_when_xdist_registered_no_workerinput():
-    config = _config_controller()
-    assert _is_xdist_controller(config) is True
+    assert CoverageStatsCustomization(_config_controller()).is_xdist_controller() is True
 
 
 def test_is_xdist_controller_false_when_xdist_not_registered():
-    config = _config_no_xdist()
-    assert _is_xdist_controller(config) is False
+    assert CoverageStatsCustomization(_config_no_xdist()).is_xdist_controller() is False
 
 
 def test_is_xdist_controller_false_when_is_worker():
-    config = _config_worker()
-    assert _is_xdist_controller(config) is False
+    assert CoverageStatsCustomization(_config_worker()).is_xdist_controller() is False
 
 
 # ---------------------------------------------------------------------------
-# pytest_testnodedown
+# pytest_testnodedown (ReportingCoordinator)
 # ---------------------------------------------------------------------------
 
 
-def _make_enabled_plugin_with_store() -> CoverageStatsPlugin:
-    plugin = CoverageStatsPlugin()
-    plugin._enabled = True
-    plugin._store = SessionStore()
-    return plugin
+def _make_enabled_reporting_coordinator() -> ReportingCoordinator:
+    return ReportingCoordinator(SessionStore(), _make_stub_customization())
 
 
 def _serialise_store(data: dict) -> str:
@@ -106,7 +123,7 @@ def _serialise_store(data: dict) -> str:
 
 
 def test_pytest_testnodedown_merges_worker_store():
-    plugin = _make_enabled_plugin_with_store()
+    coord = _make_enabled_reporting_coordinator()
 
     # Worker 1 contributes (foo.py, 10): [2, 1, 0, 0]
     node1 = SimpleNamespace(
@@ -121,10 +138,10 @@ def test_pytest_testnodedown_merges_worker_store():
         }
     )
 
-    plugin.pytest_testnodedown(node=node1, error=None)
-    plugin.pytest_testnodedown(node=node2, error=None)
+    coord.pytest_testnodedown(node=node1, error=None)
+    coord.pytest_testnodedown(node=node2, error=None)
 
-    ld = plugin._store._data[("foo.py", 10)]
+    ld = coord._store.get_or_create(("foo.py", 10))
     assert ld.incidental_executions == 5   # 2 + 3
     assert ld.deliberate_executions == 1   # 1 + 0
     assert ld.incidental_asserts == 1      # 0 + 1
@@ -132,43 +149,51 @@ def test_pytest_testnodedown_merges_worker_store():
 
 
 def test_pytest_testnodedown_skips_gracefully_when_key_missing():
-    plugin = _make_enabled_plugin_with_store()
+    coord = _make_enabled_reporting_coordinator()
     node = SimpleNamespace(workeroutput={})  # no coverage_stats_data key
     # Must not raise
-    plugin.pytest_testnodedown(node=node, error=None)
-    assert plugin._store._data == {}
+    coord.pytest_testnodedown(node=node, error=None)
+    assert list(coord._store.items()) == []
 
 
 def test_pytest_testnodedown_noop_when_disabled():
-    plugin = CoverageStatsPlugin()
-    plugin._enabled = False
-    plugin._store = SessionStore()
+    coord = ReportingCoordinator(SessionStore(), _make_stub_customization())
+    coord._enabled = False
 
     node = SimpleNamespace(
         workeroutput={
             "coverage_stats_data": _serialise_store({("bar.py", 5): [1, 0, 0, 0]})
         }
     )
-    plugin.pytest_testnodedown(node=node, error=None)
-    # Store must remain untouched because plugin is disabled
-    assert plugin._store._data == {}
+    coord.pytest_testnodedown(node=node, error=None)
+    # Store must remain untouched because coordinator is disabled
+    assert list(coord._store.items()) == []
 
 
 # ---------------------------------------------------------------------------
-# Worker pytest_sessionfinish
+# Worker pytest_sessionfinish (TracingCoordinator)
 # ---------------------------------------------------------------------------
+
+
+def _make_enabled_tracing_coordinator(config=None) -> TracingCoordinator:
+    if config is None:
+        config = _make_stub_config()
+    store = SessionStore()
+    ctx = ProfilerContext(source_dirs=[])
+    tracer = LineTracer(ctx, store)
+    return TracingCoordinator(store, tracer, ctx, CoverageStatsResolver(), CoverageStatsCustomization(config))
 
 
 def test_worker_sessionfinish_populates_workeroutput():
-    plugin = _make_enabled_plugin_with_store()
+    config = _config_worker()
+    coord = _make_enabled_tracing_coordinator(config)
     # Seed the store with one line
-    ld = plugin._store.get_or_create(("src/app.py", 20))
+    ld = coord._store.get_or_create(("src/app.py", 20))
     ld.incidental_executions = 4
 
-    config = _config_worker()
     session = SimpleNamespace(config=config)
 
-    plugin.pytest_sessionfinish(session=session, exitstatus=0)
+    coord.pytest_sessionfinish(session=session, exitstatus=0)
 
     raw = config.workeroutput.get("coverage_stats_data")
     assert raw is not None
@@ -180,7 +205,7 @@ def test_worker_sessionfinish_populates_workeroutput():
 
 
 def test_worker_sessionfinish_does_not_create_output_dir(tmp_path):
-    plugin = _make_enabled_plugin_with_store()
+    coord = _make_enabled_tracing_coordinator()
 
     config = _config_worker()
     # Provide a getoption/getini that would be used by reporters
@@ -193,7 +218,7 @@ def test_worker_sessionfinish_does_not_create_output_dir(tmp_path):
     config.getini = lambda name: ""
 
     session = SimpleNamespace(config=config)
-    plugin.pytest_sessionfinish(session=session, exitstatus=0)
+    coord.pytest_sessionfinish(session=session, exitstatus=0)
 
     # Reporters must NOT have been called — directory should not exist
     assert not output_subdir.exists()
@@ -204,9 +229,8 @@ def test_worker_sessionfinish_does_not_create_output_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_controller_configure_creates_store_but_no_tracer():
+def test_controller_configure_creates_reporting_coordinator_only():
     """Simulate what pytest_configure does for the controller path."""
-    # We call it manually via the logic in plugin.py rather than monkey-patching pytest
     from coverage_stats.plugin import pytest_configure  # noqa: PLC0415
 
     registered = {}
@@ -221,18 +245,18 @@ def test_controller_configure_creates_store_but_no_tracer():
     config = SimpleNamespace(
         pluginmanager=FakePluginManager(),
         option=SimpleNamespace(dist="load"),
-        # No workeroutput — real controller configs don't have this attribute
-        _coverage_stats_ctx=None,
     )
-    # Simulate getoption returning True for --coverage-stats
     config.getoption = lambda name, default=None: True if name == "--coverage-stats" else default
     config.getini = lambda name: ""
 
     pytest_configure(config)
 
-    plugin = registered.get("coverage-stats-plugin")
-    assert plugin is not None
-    assert plugin._enabled is True
-    assert plugin._tracer is None
-    assert isinstance(plugin._store, SessionStore)
-    assert config._coverage_stats_ctx is None
+    # Controller: only a ReportingCoordinator is registered, no TracingCoordinator
+    reporting = registered.get("coverage-stats-reporting")
+    assert reporting is not None
+    assert isinstance(reporting, ReportingCoordinator)
+    assert reporting._enabled is True
+    assert isinstance(reporting._store, SessionStore)
+
+    # No tracing coordinator should be registered for the controller
+    assert registered.get("coverage-stats-tracing") is None

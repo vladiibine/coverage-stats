@@ -7,10 +7,9 @@ from typing import Protocol
 
 import pytest
 
-from coverage_stats.executable_lines import get_executable_lines
+from coverage_stats.executable_lines import ExecutableLinesAnalyzer
 from coverage_stats.reporters.models import (
     _BranchAnalysis,
-    _pct,
     _is_wildcard_case,
     CoverageReport,
     FileSummary,
@@ -41,6 +40,9 @@ class ReportBuilder(Protocol):
 class DefaultReportBuilder:
     """Default implementation of the ReportBuilder protocol."""
 
+    def __init__(self, analyzer: ExecutableLinesAnalyzer | None = None) -> None:
+        self._analyzer = analyzer if analyzer is not None else ExecutableLinesAnalyzer()
+
     def build(self, store: SessionStore, config: pytest.Config) -> CoverageReport:
         """Build a CoverageReport from the session store and pytest config."""
         file_reports: list[FileReport] = []
@@ -58,7 +60,7 @@ class DefaultReportBuilder:
                 all_linenos = sorted(line_data.keys())
                 source_map = {}
 
-            executable = get_executable_lines(abs_path)
+            executable = self._analyzer.get_executable_lines(abs_path)
             total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(line_data)
 
             branch_analysis = self._analyze_branches(abs_path, line_data)
@@ -77,9 +79,9 @@ class DefaultReportBuilder:
             deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
 
             total_denom = total_stmts + branch_analysis.arcs_total
-            total_pct = _pct(total_covered + branch_analysis.arcs_covered, total_denom)
-            deliberate_pct = _pct(deliberate_covered + branch_analysis.arcs_deliberate, total_denom)
-            incidental_pct = _pct(incidental_covered + branch_analysis.arcs_incidental, total_denom)
+            total_pct = self._pct(total_covered + branch_analysis.arcs_covered, total_denom)
+            deliberate_pct = self._pct(deliberate_covered + branch_analysis.arcs_deliberate, total_denom)
+            incidental_pct = self._pct(incidental_covered + branch_analysis.arcs_incidental, total_denom)
 
             partial_count = len(branch_analysis.partial & executable)
 
@@ -214,7 +216,7 @@ class DefaultReportBuilder:
                 for i, case in enumerate(node.cases):
                     case_line = case.pattern.lineno
                     is_last = i == len(node.cases) - 1
-                    if is_last and _is_wildcard_case(case):
+                    if is_last and self._is_wildcard_case(case):
                         # Wildcard always matches — no branching arcs
                         continue
                     elif is_last:
@@ -252,3 +254,12 @@ class DefaultReportBuilder:
             arcs_deliberate=arcs_deliberate,
             arcs_incidental=arcs_incidental,
         )
+
+    @staticmethod
+    def _pct(numerator: int, denominator: int) -> float:
+        """Coverage percentage; returns 100.0 when denominator is 0 (nothing to cover)."""
+        return numerator / denominator * 100.0 if denominator else 100.0
+
+    @staticmethod
+    def _is_wildcard_case(case: ast.match_case) -> bool:
+        return _is_wildcard_case(case)

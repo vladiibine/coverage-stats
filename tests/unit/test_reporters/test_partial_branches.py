@@ -8,7 +8,9 @@ import pytest
 from coverage_stats import covers
 from coverage_stats.store import LineData
 from coverage_stats.reporters.report_data import DefaultReportBuilder
-from coverage_stats.executable_lines import get_executable_lines
+from coverage_stats.executable_lines import ExecutableLinesAnalyzer
+
+_analyzer = ExecutableLinesAnalyzer()
 
 
 def _ld(count: int) -> LineData:
@@ -31,7 +33,7 @@ def _write(tmp_path, src: str) -> str:
 # get_executable_lines — case pattern lines
 # ---------------------------------------------------------------------------
 
-@covers(get_executable_lines)
+@covers(ExecutableLinesAnalyzer.get_executable_lines)
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="match requires Python 3.10+")
 def test_match_case_lines_are_executable(tmp_path):
     path = _write(tmp_path, """\
@@ -44,7 +46,7 @@ def test_match_case_lines_are_executable(tmp_path):
                 case _:
                     return "other"
     """)
-    exe = get_executable_lines(path)
+    exe = _analyzer.get_executable_lines(path)
     src = (tmp_path / "subject.py").read_text().splitlines()
     case_lines = [i + 1 for i, line in enumerate(src) if line.strip().startswith("case ")]
     assert case_lines, "expected to find case lines in source"

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from coverage_stats.covers import covers, resolve_covers
+from coverage_stats.covers import CoverageStatsResolver, covers
+
+_resolver = CoverageStatsResolver()
 
 
 class FakeItem:
@@ -57,24 +59,24 @@ def test_covers_stores_refs_on_function():
     assert _sample_function in test_fn._covers_refs
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_no_decorator():
     def test_fn():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
     assert item._covers_lines == frozenset()
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_direct_function_ref():
     @covers(_sample_function)
     def test_fn():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
     assert len(item._covers_lines) > 0
@@ -85,14 +87,14 @@ def test_resolve_covers_direct_function_ref():
         assert isinstance(entry[1], int)
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_direct_class_ref():
     @covers(_SampleClass)
     def test_fn():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
     # Should include class body lines plus method lines
@@ -113,14 +115,14 @@ def test_resolve_covers_direct_class_ref():
     assert method_b_start in all_linenos
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_dotted_string_function():
     @covers("coverage_stats.store.SessionStore.get_or_create")
     def test_fn():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
     assert len(item._covers_lines) > 0
@@ -131,14 +133,14 @@ def test_resolve_covers_dotted_string_function():
         assert isinstance(entry[1], int)
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_dotted_string_class():
     @covers("coverage_stats.store.SessionStore")
     def test_fn():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
     assert len(item._covers_lines) > 0
@@ -157,7 +159,7 @@ def test_resolve_covers_dotted_string_class():
     assert merge_start in all_linenos
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_multiple_refs():
     def fn_a():
         return "a"
@@ -170,7 +172,7 @@ def test_resolve_covers_multiple_refs():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
 
@@ -188,14 +190,14 @@ def test_resolve_covers_multiple_refs():
         pass
 
     item_b = FakeItem(function=test_fn_b)
-    resolve_covers(item_a)
-    resolve_covers(item_b)
+    _resolver.resolve_covers(item_a)
+    _resolver.resolve_covers(item_b)
 
     combined = item_a._covers_lines | item_b._covers_lines
     assert item._covers_lines == combined
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_class_level_decorator():
     @covers(_sample_function)
     class TestSomeClass:
@@ -203,13 +205,13 @@ def test_resolve_covers_class_level_decorator():
             pass
 
     item = FakeItem(function=TestSomeClass.test_method, cls=TestSomeClass)
-    resolve_covers(item)
+    _resolver.resolve_covers(item)
 
     assert isinstance(item._covers_lines, frozenset)
     assert len(item._covers_lines) > 0
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_bad_dotted_string():
     @covers("no.such.module.Fn")
     def test_fn():
@@ -218,10 +220,10 @@ def test_resolve_covers_bad_dotted_string():
     item = FakeItem(function=test_fn)
 
     with pytest.raises(BaseException, match="coverage-stats: cannot resolve"):
-        resolve_covers(item)
+        _resolver.resolve_covers(item)
 
 
-@covers(resolve_covers)
+@covers(CoverageStatsResolver.resolve_covers)
 def test_resolve_covers_dataclass_does_not_raise():
     """@covers on a dataclass must not raise OSError for generated methods like __eq__."""
     @covers(_SampleDataclass)
@@ -229,7 +231,7 @@ def test_resolve_covers_dataclass_does_not_raise():
         pass
 
     item = FakeItem(function=test_fn)
-    resolve_covers(item)  # must not raise
+    _resolver.resolve_covers(item)  # must not raise
 
     assert isinstance(item._covers_lines, frozenset)
     assert len(item._covers_lines) > 0

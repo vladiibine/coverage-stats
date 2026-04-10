@@ -6,6 +6,7 @@ DOCS:
   * in-report docs (html)
   * cli docs
   * README docs (with pictures)
+  * Coverage-stats options should be documented as a group, like coverage.py options are
 
 CORE
   * [v] instead of "lines", we need "statements", like coverage does it
@@ -18,6 +19,7 @@ CORE
   * [v] document the columns (in README, on the index page and on individual report pages)
   * option to show all tests that ran on a certain line/file/folder
   * code comment to turn off counting of inc/deliberate asserts/test/executions
+  *  !!! the Tracing and Reporting coordinators can't actually be subclassed in a 100% useful way. They already register hooks, so their hooks will get called. What can be done is for the hooks to call user-code. Therefore, we should refactor them, 
 
 REPORTING:
   * ordering or html columns

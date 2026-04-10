@@ -148,7 +148,7 @@ class CoveragePyInterop:
                 for i, case in enumerate(node.cases):
                     case_line = case.pattern.lineno
                     is_last = i == len(node.cases) - 1
-                    if is_last and _is_wildcard_case(case):
+                    if is_last and self._is_wildcard_case(case):
                         continue
                     body_lineno = case.body[0].lineno
                     body_taken = _count(body_lineno) > 0
@@ -347,3 +347,7 @@ class CoveragePyInterop:
                 data.add_lines(store.lines_by_file())
         except Exception as exc:
             warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")
+
+    @staticmethod
+    def _is_wildcard_case(case: ast.match_case) -> bool:
+        return _is_wildcard_case(case)

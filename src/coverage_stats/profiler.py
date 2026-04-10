@@ -16,24 +16,6 @@ if TYPE_CHECKING:
 _TraceFunc = Callable[[types.FrameType, str, Any], Any]
 
 
-def _is_c_extension_tracer(func: Any) -> bool:
-    """Return True if *func* is a C extension callable.
-
-    C extension trace functions (e.g. coverage.py's CTracer) have a
-    self-healing behaviour: when called directly from Python code (not via
-    Python's internal C-level trace dispatch) they call sys.settrace(self) as
-    a side effect, overwriting whatever tracer was on top of them.  Calling
-    such a function from within our own trace dispatch therefore starts an
-    endless reinstall battle.  We detect them by checking that they are
-    callable but are not plain Python functions or bound methods.
-    """
-    if func is None:
-        return False
-    if isinstance(func, (types.FunctionType, types.MethodType)):
-        return False
-    return callable(func)
-
-
 @dataclass
 class ProfilerContext:
     current_test_item: pytest.Item | None = None
@@ -208,7 +190,7 @@ class LineTracer:
             # calls start() again.
             return
         self._prev_trace = current
-        self._skip_prev_trace = _is_c_extension_tracer(self._prev_trace)
+        self._skip_prev_trace = self._is_c_extension_tracer(self._prev_trace)
         self._installed_fn = self._trace
         sys.settrace(self._installed_fn)
 
@@ -315,3 +297,21 @@ class LineTracer:
             return local
 
         return local
+
+    def _is_c_extension_tracer(self, func: Any) -> bool:
+        """Return True if *func* is a C extension callable.
+
+        C extension trace functions (e.g. coverage.py's CTracer) have a
+        self-healing behaviour: when called directly from Python code (not via
+        Python's internal C-level trace dispatch) they call sys.settrace(self) as
+        a side effect, overwriting whatever tracer was on top of them.  Calling
+        such a function from within our own trace dispatch therefore starts an
+        endless reinstall battle.  We detect them by checking that they are
+        callable but are not plain Python functions or bound methods.
+        """
+        if func is None:
+            return False
+        if isinstance(func, (types.FunctionType, types.MethodType)):
+            return False
+        return callable(func)
+

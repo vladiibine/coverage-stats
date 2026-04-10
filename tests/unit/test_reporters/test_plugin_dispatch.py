@@ -4,7 +4,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from coverage_stats.store import SessionStore
-from coverage_stats.plugin import CoverageStatsPlugin, CoverageStatsCustomization
+from coverage_stats.plugin import CoverageStatsCustomization
+from coverage_stats.reporting_coordinator import ReportingCoordinator
+
+
+def _make_stub_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        pluginmanager=SimpleNamespace(hasplugin=lambda name: False),
+        getoption=lambda name, default=None: default,
+        getini=lambda name: {"coverage_stats_precision": "1"}.get(name, ""),
+    )
 
 
 def make_config(rootdir: Path, fmt: str, out_dir: str) -> SimpleNamespace:
@@ -23,18 +32,8 @@ def make_config(rootdir: Path, fmt: str, out_dir: str) -> SimpleNamespace:
     )
 
 
-class _NoopTracer:
-    def stop(self) -> None:
-        pass
-
-
-def make_plugin(store: SessionStore) -> CoverageStatsPlugin:
-    plugin = CoverageStatsPlugin()
-    plugin._enabled = True
-    plugin._store = store
-    plugin._tracer = _NoopTracer()
-    plugin._customization = CoverageStatsCustomization()
-    return plugin
+def make_reporting_coordinator(store: SessionStore) -> ReportingCoordinator:
+    return ReportingCoordinator(store, CoverageStatsCustomization(_make_stub_config()))
 
 
 def test_sessionfinish_json_and_csv_both_written(tmp_path):
@@ -47,8 +46,8 @@ def test_sessionfinish_json_and_csv_both_written(tmp_path):
     config = make_config(rootdir, fmt="json,csv", out_dir=str(out_dir))
     session = SimpleNamespace(config=config)
 
-    plugin = make_plugin(store)
-    plugin.pytest_sessionfinish(session=session, exitstatus=0)
+    coord = make_reporting_coordinator(store)
+    coord.pytest_sessionfinish(session=session, exitstatus=0)
 
     assert (out_dir / "coverage-stats.json").exists()
     assert (out_dir / "coverage-stats.csv").exists()
@@ -64,8 +63,8 @@ def test_sessionfinish_html_format_no_error_no_file(tmp_path):
     config = make_config(rootdir, fmt="html", out_dir=str(out_dir))
     session = SimpleNamespace(config=config)
 
-    plugin = make_plugin(store)
-    plugin.pytest_sessionfinish(session=session, exitstatus=0)  # must not raise
+    coord = make_reporting_coordinator(store)
+    coord.pytest_sessionfinish(session=session, exitstatus=0)  # must not raise
 
     # HTML report uses index.html, not coverage-stats.html
     assert not (out_dir / "coverage-stats.html").exists()
