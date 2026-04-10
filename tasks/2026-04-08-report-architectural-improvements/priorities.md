@@ -20,6 +20,6 @@
 | 4.2 Tracer displacement detection | Low | Low (diagnostics) | **P3** | not started |
 | 4.3 Tool ID fallback warnings | Low | Low (correctness) | **P3** | not started |
 | 6.1 Unit tests for plugin | Medium | Medium (test coverage) | **P3** | not started |
-| 6.2 Performance benchmarks | Medium | Medium (regression prevention) | **P3** | not started |
+| 6.2 Performance benchmarks | Medium | Medium (regression prevention) | **P3** | done        |
 | 3.3 Event-based lifecycle | High | Low (premature unless needed) | **P4** | not started |
 | 4.4 Thread safety docs | Low | Low (documentation) | **P4** | not started |

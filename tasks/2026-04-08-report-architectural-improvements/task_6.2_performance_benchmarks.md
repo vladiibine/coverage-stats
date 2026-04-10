@@ -3,6 +3,7 @@
 **Priority:** P3
 **Effort:** Medium
 **Impact:** Medium (regression prevention)
+**Status:** Done
 
 ## Problem
 

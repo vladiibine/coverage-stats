@@ -10,6 +10,7 @@ dependencies = ["pytest"]
 
 [project.optional-dependencies]
 dev = ["ruff", "mypy", "nox", "coverage[toml]", "pytest-cov", "pytest-xdist", "import-linter"]
+benchmark = ["pytest-benchmark"]
 
 [project.entry-points."pytest11"]
 coverage-stats = "coverage_stats.plugin"

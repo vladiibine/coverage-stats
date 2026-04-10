@@ -13,6 +13,7 @@ def tests(session: nox.Session) -> None:
     session.install("-e", ".[dev]")
     session.run(
         "pytest", "tests/",
+        "--ignore=tests/benchmarks",
         "--coverage-stats",
         "--coverage-stats-format", "html",
         "--coverage-stats-output", f"coverage-stats-report/{session.python}",
@@ -39,3 +40,23 @@ def imports(session: nox.Session) -> None:
     """Check import layering with import-linter."""
     session.install(".[dev]")
     session.run("lint-imports")
+
+
+@nox.session
+def benchmark(session: nox.Session) -> None:
+    """Run performance benchmarks (not part of the default suite).
+
+    Results are printed to stdout.  Pass --benchmark-save=<name> to persist
+    a baseline and --benchmark-compare to compare against a saved run:
+
+        nox -s benchmark -- --benchmark-save=baseline
+        nox -s benchmark -- --benchmark-compare=baseline
+    """
+    session.install("-e", ".[dev,benchmark]")
+    session.run(
+        "pytest", "tests/benchmarks/",
+        "--benchmark-only",
+        "--benchmark-sort=mean",
+        "--benchmark-columns=min,mean,stddev,rounds,iterations",
+        *session.posargs,
+    )
