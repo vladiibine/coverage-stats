@@ -56,11 +56,11 @@ class FilePageReporter(HtmlReporterMixin):
         "del-tests": "Number of distinct deliberate tests that executed this line.",
         "inc-test-ids": (
             "Node IDs of all incidental tests that executed this line. "
-            "Only populated when --coverage-stats-track-test-ids is enabled."
+            "Empty only when --coverage-stats-no-track-test-ids is set."
         ),
         "del-test-ids": (
             "Node IDs of all deliberate tests that executed this line. "
-            "Only populated when --coverage-stats-track-test-ids is enabled."
+            "Empty only when --coverage-stats-no-track-test-ids is set."
         ),
     }
 
@@ -70,7 +70,7 @@ class FilePageReporter(HtmlReporterMixin):
     ) -> str:
         """Render a test-count cell with an optional expandable list of test node IDs.
 
-        When *test_ids* is non-empty (i.e. --coverage-stats-track-test-ids was on),
+        When *test_ids* is non-empty (i.e. --coverage-stats-no-track-test-ids is not set),
         the count is wrapped in a <details> element so the user can expand it to see
         the full list of test node IDs.  When empty, just the integer count is shown.
         """

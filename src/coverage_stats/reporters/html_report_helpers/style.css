@@ -36,14 +36,14 @@ td.branch-warn {
 }
 tr.folder-row {
     background: #e8e8e8;
-    cursor: pointer;
-    user-select: none;
 }
 tr.folder-row:hover {
     background: #d8d8d8;
 }
 tr.folder-row td:first-child {
     font-weight: bold;
+    cursor: pointer;
+    user-select: none;
 }
 .toggle {
     display: inline-block;
@@ -131,6 +131,20 @@ td details summary {
 }
 .test-id-list li {
     padding: 0.05rem 0;
+}
+/* Show more / show less toggle for long test-ID lists */
+.test-id-show-more,
+.test-id-show-less {
+    display: block;
+    font-size: 0.75em;
+    margin-top: 0.2rem;
+    color: #1565c0;
+    text-decoration: none;
+    user-select: none;
+}
+.test-id-show-more:hover,
+.test-id-show-less:hover {
+    text-decoration: underline;
 }
 /* Sortable column headers */
 th.sortable {

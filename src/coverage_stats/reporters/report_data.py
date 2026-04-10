@@ -81,6 +81,8 @@ class DefaultReportBuilder:
             )
             incidental_asserts = sum(ld.incidental_asserts for ld in line_data.values())
             deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
+            incidental_test_ids = frozenset().union(*(ld.incidental_test_ids for ld in line_data.values()))
+            deliberate_test_ids = frozenset().union(*(ld.deliberate_test_ids for ld in line_data.values()))
 
             total_denom = total_stmts + branch_analysis.arcs_total
             total_pct = self._pct(total_covered + branch_analysis.arcs_covered, total_denom)
@@ -106,6 +108,8 @@ class DefaultReportBuilder:
                 partial_count=partial_count,
                 incidental_asserts=incidental_asserts,
                 deliberate_asserts=deliberate_asserts,
+                incidental_test_ids=incidental_test_ids,
+                deliberate_test_ids=deliberate_test_ids,
             )
 
             line_reports: list[LineReport] = []

@@ -19,7 +19,7 @@ class LineData:
     deliberate_asserts: int = 0
     incidental_tests: int = 0
     deliberate_tests: int = 0
-    # Only populated when --coverage-stats-track-test-ids is enabled.
+    # Empty only when --coverage-stats-no-track-test-ids is set.
     incidental_test_ids: set[str] = field(default_factory=set)
     deliberate_test_ids: set[str] = field(default_factory=set)
 

@@ -8,6 +8,8 @@ from coverage_stats.reporters.html_report_helpers.mixins import HtmlReporterMixi
 
 class IndexPageReporter(HtmlReporterMixin):
     """Renders the folder-tree index page."""
+    # Number of test IDs shown before the list collapses into a "show more" toggle.
+    TEST_ID_COLLAPSE_THRESHOLD: int = 10
 
     # Map col-id → visible (True = shown by default, False = hidden by default).
     # Override in a subclass to change initial column visibility.
@@ -22,6 +24,10 @@ class IndexPageReporter(HtmlReporterMixin):
         "del-asserts": False,
         "inc-assert-density": False,
         "del-assert-density": False,
+        "inc-test-count": False,
+        "del-test-count": False,
+        "inc-test-ids": False,
+        "del-test-ids": False,
     }
 
     # Human-readable labels for each column's checkbox. Override to rename.
@@ -36,6 +42,10 @@ class IndexPageReporter(HtmlReporterMixin):
         "del-asserts": "Del. Asserts",
         "inc-assert-density": "Inc. Assert Density",
         "del-assert-density": "Del. Assert Density",
+        "inc-test-count": "# Inc. Tests",
+        "del-test-count": "# Del. Tests",
+        "inc-test-ids": "Inc. Test IDs",
+        "del-test-ids": "Del. Test IDs",
     }
 
     # Descriptions shown as tooltips on checkbox labels and in the help popup.
@@ -84,6 +94,24 @@ class IndexPageReporter(HtmlReporterMixin):
             "Deliberate assert count divided by total statements + branches. "
             "A higher value means more targeted assertions are exercising each line."
         ),
+        "inc-test-count": (
+            "Number of distinct incidental tests that executed at least one line in this "
+            "file or folder. Empty only when --coverage-stats-no-track-test-ids is set."
+        ),
+        "del-test-count": (
+            "Number of distinct deliberate tests that executed at least one line in this "
+            "file or folder. Empty only when --coverage-stats-no-track-test-ids is set."
+        ),
+        "inc-test-ids": (
+            "Node IDs of all incidental tests that executed at least one line in this "
+            "file or folder, sorted alphabetically. "
+            "Empty only when --coverage-stats-no-track-test-ids is set."
+        ),
+        "del-test-ids": (
+            "Node IDs of all deliberate tests that executed at least one line in this "
+            "file or folder, sorted alphabetically. "
+            "Empty only when --coverage-stats-no-track-test-ids is set."
+        ),
     }
 
     def _sort_data_attrs(self, row: IndexRowData, name: str) -> str:
@@ -101,7 +129,45 @@ class IndexPageReporter(HtmlReporterMixin):
             f' data-sort-del-asserts="{row.deliberate_asserts}"'
             f' data-sort-inc-assert-density="{row.inc_assert_density:{fmt}}"'
             f' data-sort-del-assert-density="{row.del_assert_density:{fmt}}"'
+            f' data-sort-inc-test-count="{len(row.incidental_test_ids)}"'
+            f' data-sort-del-test-count="{len(row.deliberate_test_ids)}"'
         )
+
+    def _render_index_test_id_list_cell(
+        self, col: str, test_ids: frozenset[str]
+    ) -> str:
+        """Render a dedicated test-ID list cell for the index page.
+
+        Shows the IDs as a sorted <ul> list. When there are more than
+        TEST_ID_COLLAPSE_THRESHOLD IDs, the first N are shown with a
+        [show more] toggle that expands the remainder inline.
+        Empty when IDs are not tracked.
+        """
+        classes: list[str] = []
+        if not self.INDEX_COLUMNS.get(col, True):
+            classes.append("col-hidden")
+        cls = f' class="{" ".join(classes)}"' if classes else ""
+        if not test_ids:
+            return f'<td data-col="{col}"{cls}></td>'
+        sorted_ids = sorted(test_ids)
+        threshold = self.TEST_ID_COLLAPSE_THRESHOLD
+        if len(sorted_ids) <= threshold:
+            items = "".join(f'<li>{_html.escape(tid)}</li>' for tid in sorted_ids)
+            content = f'<ul class="test-id-list">{items}</ul>'
+        else:
+            visible = sorted_ids[:threshold]
+            overflow = sorted_ids[threshold:]
+            visible_items = "".join(f'<li>{_html.escape(tid)}</li>' for tid in visible)
+            overflow_items = "".join(f'<li>{_html.escape(tid)}</li>' for tid in overflow)
+            content = (
+                f'<ul class="test-id-list">{visible_items}</ul>'
+                f'<ul class="test-id-list test-id-overflow" style="display:none">{overflow_items}</ul>'
+                f'<a href="#" class="test-id-show-more"'
+                f' onclick="toggleTestIdOverflow(this);return false;">[show more]</a>'
+                f'<a href="#" class="test-id-show-less" style="display:none"'
+                f' onclick="toggleTestIdOverflow(this);return false;">[show less]</a>'
+            )
+        return f'<td data-col="{col}"{cls}>{content}</td>'
 
     @staticmethod
     def _th_sort_cls(col: str, columns: dict[str, bool]) -> str:
@@ -172,9 +238,8 @@ class IndexPageReporter(HtmlReporterMixin):
             _idx[0] += 1
             rows.append(
                 f'<tr id="{fid}" class="folder-row"{parent_attr}'
-                f' data-original-index="{orig_idx}"{sort_attrs}'
-                f' onclick="toggleFolder(\'{fid}\')">'
-                f'<td style="padding-left:{folder_indent}px">'
+                f' data-original-index="{orig_idx}"{sort_attrs}>'
+                f'<td style="padding-left:{folder_indent}px" onclick="toggleFolder(\'{fid}\')">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
                 f'<td data-col="stmts"{cell_cls("stmts")}>{row.total_stmts}</td>'
                 f'<td data-col="total-pct"{cell_cls("total-pct", tpct_lvl)}>{row.total_pct:{fmt}}%</td>'
@@ -186,7 +251,11 @@ class IndexPageReporter(HtmlReporterMixin):
                 f'<td data-col="del-asserts"{cell_cls("del-asserts")}>{row.deliberate_asserts}</td>'
                 f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
                 f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
-                f'</tr>'
+                f'<td data-col="inc-test-count"{cell_cls("inc-test-count")}>{len(row.incidental_test_ids)}</td>'
+                f'<td data-col="del-test-count"{cell_cls("del-test-count")}>{len(row.deliberate_test_ids)}</td>'
+                + self._render_index_test_id_list_cell("inc-test-ids", row.incidental_test_ids)
+                + self._render_index_test_id_list_cell("del-test-ids", row.deliberate_test_ids)
+                + '</tr>'
             )
             rows.extend(self._render_tree_rows(sub, depth + 1, fid, _ranges, _idx))
 
@@ -214,7 +283,11 @@ class IndexPageReporter(HtmlReporterMixin):
                 f'<td data-col="del-asserts"{cell_cls("del-asserts")}>{row.deliberate_asserts}</td>'
                 f'<td data-col="inc-assert-density"{cell_cls("inc-assert-density", self._bucket_level(row.inc_assert_density, _ranges["inc-assert-density"]))}>{row.inc_assert_density:{fmt}}</td>'
                 f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
-                f'</tr>'
+                f'<td data-col="inc-test-count"{cell_cls("inc-test-count")}>{len(row.incidental_test_ids)}</td>'
+                f'<td data-col="del-test-count"{cell_cls("del-test-count")}>{len(row.deliberate_test_ids)}</td>'
+                + self._render_index_test_id_list_cell("inc-test-ids", row.incidental_test_ids)
+                + self._render_index_test_id_list_cell("del-test-ids", row.deliberate_test_ids)
+                + '</tr>'
             )
 
         return rows
@@ -256,6 +329,10 @@ class IndexPageReporter(HtmlReporterMixin):
             f'<th data-col="del-asserts"{sc("del-asserts", idx)} {onclick}>Del. Asserts</th>'
             f'<th data-col="inc-assert-density"{sc("inc-assert-density", idx)} {onclick}>Inc. Assert Density</th>'
             f'<th data-col="del-assert-density"{sc("del-assert-density", idx)} {onclick}>Del. Assert Density</th>'
+            f'<th data-col="inc-test-count"{sc("inc-test-count", idx)} {onclick}># Inc. Tests</th>'
+            f'<th data-col="del-test-count"{sc("del-test-count", idx)} {onclick}># Del. Tests</th>'
+            f'<th data-col="inc-test-ids"{sc("inc-test-ids", idx)}>Inc. Test IDs</th>'
+            f'<th data-col="del-test-ids"{sc("del-test-ids", idx)}>Del. Test IDs</th>'
             f'</tr></thead>'
             f'<tbody>{rows_html}</tbody>'
             f'</table>'

@@ -31,10 +31,10 @@ class ProfilerContext:
     # and read on every line event.  Storing it here avoids a getattr() on every
     # line event in the tracer hot path.
     current_covers_lines: frozenset[tuple[str, int]] = field(default_factory=frozenset)
-    # When True, distribute_asserts records the test node ID string in LineData in
-    # addition to incrementing the integer count.  Off by default to avoid the
-    # memory overhead of storing sets of strings for every covered line.
-    track_test_ids: bool = False
+    # When True (the default), distribute_asserts records the test node ID string
+    # in LineData.  Set to False via --coverage-stats-no-track-test-ids to reduce
+    # memory usage at the cost of losing per-line test attribution.
+    track_test_ids: bool = True
 
     def record_assertion(self) -> None:
         """Increment the assert counter when an assertion passes during the call phase."""

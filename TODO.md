@@ -9,26 +9,28 @@ DOCS:
   * Coverage-stats options should be documented as a group, like coverage.py options are
 
 CORE
+  * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
+  * code comment to turn off counting of inc/deliberate asserts/test/executions
   * [v] instead of "lines", we need "statements", like coverage does it
   * [v] add "number of incidental/deliberate tests that ran on this line of code"  
-  * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
   * [v] assert_counter.py -> the assert incrementing logic there seems to belong more in the LineProfiler. Move it there if possible, or at least allow the user to parametrize it
   * [v] Test library via itself! See how well it’s intentionally covered
   * [v] add tests invoking the library together with coverage.py / xdist / both
   * [v] html and report_data duplicate calculations -> refactor!
   * [v] document the columns (in README, on the index page and on individual report pages)
-  * option to show all tests that ran on a certain line/file/folder
-  * code comment to turn off counting of inc/deliberate asserts/test/executions
-  *  !!! the Tracing and Reporting coordinators can't actually be subclassed in a 100% useful way. They already register hooks, so their hooks will get called. What can be done is for the hooks to call user-code. Therefore, we should refactor them, 
+  * [v] option to show all tests that ran on a certain line/file/folder
+  * [x]] !!! the Tracing and Reporting coordinators can't actually be subclassed in a 100% useful way. They already register hooks, so their hooks will get called. What can be done is for the hooks to call user-code. Therefore, we should refactor them, 
+    >>> wont-do, hypothesis is false
 
 REPORTING:
   * [v] ordering or html columns
   * (optional) resizing of columns
-  * See the exact tests that covered (incidentally & deliberately) every line
-  * index should show # inc/del tests
+  * [v] See the exact tests that covered (incidentally & deliberately) every line
+    * add the test cols on the index page
+    * index should show # inc/del tests
   * [v] color file report pages
   * [v] coloring of stats (from red-ish to green-ish) 
-    * [] the colors of folders, make them - % are comparable, # are not, and folders should be added to a comparison bucket different from that of files 
+    * [v] the colors of folders, make them - % are comparable, # are not, and folders should be added to a comparison bucket different from that of files 
   * [v] in the html index, add all stats (# statements, #/% deliberate, #/% incidental, # asserts, #asserts/#lines)
   * [v] in the html report, there are too many lines columns; Add checkboxes, which enable one or multiple columns
   * [v] json/csv reporting: do they also display partial lines? They should!

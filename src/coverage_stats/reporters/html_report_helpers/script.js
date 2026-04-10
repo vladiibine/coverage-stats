@@ -32,6 +32,17 @@ function hideDescendants(id) {
     });
 }
 
+function toggleTestIdOverflow(link) {
+    var td = link.closest('td');
+    var overflow = td.querySelector('.test-id-overflow');
+    var showMore = td.querySelector('.test-id-show-more');
+    var showLess = td.querySelector('.test-id-show-less');
+    var expanding = overflow.style.display === 'none';
+    overflow.style.display = expanding ? '' : 'none';
+    showMore.style.display = expanding ? 'none' : '';
+    showLess.style.display = expanding ? '' : 'none';
+}
+
 // Column sorting — sortable table with folder-tree awareness
 class TableSorter {
     constructor(tableId) {

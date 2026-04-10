@@ -35,7 +35,7 @@ class LineReport:
     deliberate_asserts: int
     incidental_tests: int
     deliberate_tests: int
-    # Populated only when --coverage-stats-track-test-ids is enabled; empty otherwise.
+    # Empty only when --coverage-stats-no-track-test-ids is set.
     incidental_test_ids: frozenset[str] = field(default_factory=frozenset)
     deliberate_test_ids: frozenset[str] = field(default_factory=frozenset)
 
@@ -57,6 +57,9 @@ class IndexRowData:
     deliberate_asserts: int
     inc_assert_density: float   # incidental_asserts / (stmts + arcs), 0.0 when denom=0
     del_assert_density: float   # deliberate_asserts  / (stmts + arcs), 0.0 when denom=0
+    # Empty only when --coverage-stats-no-track-test-ids is set.
+    incidental_test_ids: frozenset[str] = field(default_factory=frozenset)
+    deliberate_test_ids: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass
@@ -77,6 +80,9 @@ class FileSummary:
     partial_count: int
     incidental_asserts: int = 0
     deliberate_asserts: int = 0
+    # Empty only when --coverage-stats-no-track-test-ids is set.
+    incidental_test_ids: frozenset[str] = field(default_factory=frozenset)
+    deliberate_test_ids: frozenset[str] = field(default_factory=frozenset)
 
     def to_index_row(self) -> IndexRowData:
         denom = self.total_stmts + self.arcs_total
@@ -91,6 +97,8 @@ class FileSummary:
             deliberate_asserts=self.deliberate_asserts,
             inc_assert_density=self.incidental_asserts / denom if denom else 0.0,
             del_assert_density=self.deliberate_asserts / denom if denom else 0.0,
+            incidental_test_ids=self.incidental_test_ids,
+            deliberate_test_ids=self.deliberate_test_ids,
         )
 
 
@@ -107,6 +115,9 @@ class _FolderAggregates:
     incidental: int = 0
     incidental_asserts: int = 0
     deliberate_asserts: int = 0
+    # Empty only when --coverage-stats-no-track-test-ids is set.
+    incidental_test_ids: frozenset[str] = field(default_factory=frozenset)
+    deliberate_test_ids: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass
@@ -120,13 +131,15 @@ class FolderNode:
     def compute_aggregates(self) -> _FolderAggregates:
         """Return aggregated metrics for this subtree, computing once and caching.
 
-        A single bottom-up pass collects all 10 metrics simultaneously, reducing
-        index-page rendering from O(n·d·k) to O(n) compared to 9 separate
+        A single bottom-up pass collects all metrics simultaneously, reducing
+        index-page rendering from O(n·d·k) to O(n) compared to separate
         recursive traversals.
         """
         if self._agg is not None:
             return self._agg
         agg = _FolderAggregates()
+        inc_ids: set[str] = set()
+        del_ids: set[str] = set()
         for f in self.files:
             agg.total_stmts += f.total_stmts
             agg.total_covered += f.total_covered
@@ -138,6 +151,8 @@ class FolderNode:
             agg.incidental += f.incidental_covered
             agg.incidental_asserts += f.incidental_asserts
             agg.deliberate_asserts += f.deliberate_asserts
+            inc_ids |= f.incidental_test_ids
+            del_ids |= f.deliberate_test_ids
         for sub in self.subfolders.values():
             sub_agg = sub.compute_aggregates()
             agg.total_stmts += sub_agg.total_stmts
@@ -150,6 +165,10 @@ class FolderNode:
             agg.incidental += sub_agg.incidental
             agg.incidental_asserts += sub_agg.incidental_asserts
             agg.deliberate_asserts += sub_agg.deliberate_asserts
+            inc_ids |= sub_agg.incidental_test_ids
+            del_ids |= sub_agg.deliberate_test_ids
+        agg.incidental_test_ids = frozenset(inc_ids)
+        agg.deliberate_test_ids = frozenset(del_ids)
         self._agg = agg
         return agg
 
@@ -167,6 +186,8 @@ class FolderNode:
             deliberate_asserts=agg.deliberate_asserts,
             inc_assert_density=agg.incidental_asserts / denom if denom else 0.0,
             del_assert_density=agg.deliberate_asserts / denom if denom else 0.0,
+            incidental_test_ids=agg.incidental_test_ids,
+            deliberate_test_ids=agg.deliberate_test_ids,
         )
 
     @staticmethod

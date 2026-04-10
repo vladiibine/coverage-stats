@@ -228,7 +228,7 @@ def test_runtest_call_noop_when_disabled():
 @covers(TracingCoordinator.pytest_runtest_teardown)
 def test_runtest_teardown_resets_context_and_distributes_asserts():
     coord, store, ctx, _tracer, _resolver = _make_tracing_coord()
-    fake_item = SimpleNamespace()
+    fake_item = SimpleNamespace(nodeid="tests/test_mod.py::test_example")
     ctx.current_test_item = fake_item
     ctx.current_phase = "call"
     ctx.current_covers_lines = frozenset({("/a.py", 1)})

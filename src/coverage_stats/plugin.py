@@ -58,9 +58,10 @@ class CoverageStatsCustomization:
             else int(config.getini("coverage_stats_precision") or 1)
         )
         self.coverage_py_active: bool = config.pluginmanager.hasplugin("pytest_cov")
-        track_ids_opt = config.getoption("--coverage-stats-track-test-ids", default=False)
-        track_ids_ini = config.getini("coverage_stats_track_test_ids")
-        self.track_test_ids: bool = bool(track_ids_opt) or str(track_ids_ini).lower() in ("true", "1", "yes")
+        no_track_ids_opt = config.getoption("--coverage-stats-no-track-test-ids", default=False)
+        no_track_ids_ini = config.getini("coverage_stats_no_track_test_ids")
+        disabled = bool(no_track_ids_opt) or str(no_track_ids_ini).lower() in ("true", "1", "yes")
+        self.track_test_ids: bool = not disabled
 
     def _load_class(self, dotted_path: str) -> type:
         module_path, sep, class_name = dotted_path.rpartition(".")
@@ -300,14 +301,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=_DEFAULT_CUSTOMIZATION,
     )
     parser.addoption(
-        "--coverage-stats-track-test-ids",
+        "--coverage-stats-no-track-test-ids",
         action="store_true",
         default=False,
-        help="Track the exact test node IDs that executed each line (increases memory usage).",
+        help="Disable tracking of test node IDs per executed line (reduces memory usage).",
     )
     parser.addini(
-        "coverage_stats_track_test_ids",
-        help="Track the exact test node IDs that executed each line (true/false, default: false).",
+        "coverage_stats_no_track_test_ids",
+        help="Disable tracking of test node IDs per executed line (true/false, default: false).",
         default="false",
     )
 

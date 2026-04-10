@@ -7,8 +7,8 @@ from coverage_stats.profiler import ProfilerContext
 from coverage_stats.store import SessionStore
 
 
-def make_item(covers_lines=frozenset()):
-    return types.SimpleNamespace(_covers_lines=covers_lines)
+def make_item(covers_lines=frozenset(), nodeid="tests/test_mod.py::test_example"):
+    return types.SimpleNamespace(_covers_lines=covers_lines, nodeid=nodeid)
 
 
 # --- record_assertion tests ---

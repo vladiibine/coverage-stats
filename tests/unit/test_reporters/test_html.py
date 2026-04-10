@@ -803,6 +803,10 @@ _INDEX_TOGGLEABLE_COLS = {
     "del-asserts": "Del. Asserts",
     "inc-assert-density": "Inc. Assert Density",
     "del-assert-density": "Del. Assert Density",
+    "inc-test-count": "# Inc. Tests",
+    "del-test-count": "# Del. Tests",
+    "inc-test-ids": "Inc. Test IDs",
+    "del-test-ids": "Del. Test IDs",
 }
 
 # Columns that can be toggled on the file page and their checkbox labels
@@ -1229,3 +1233,86 @@ def test_write_html_file_page_contains_color_classes(tmp_path):
 
     file_html = (out_dir / "mod.py.html").read_text()
     assert "lvl-" in file_html
+
+
+# ---------------------------------------------------------------------------
+# Index page — test ID list cells (show more / show less)
+# ---------------------------------------------------------------------------
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_empty_when_no_ids():
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", frozenset())
+    assert "<ul" not in html
+    assert "show-more" not in html
+    assert 'data-col="inc-test-ids"' in html
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_flat_list_when_at_threshold():
+    """Exactly TEST_ID_COLLAPSE_THRESHOLD IDs → plain list, no toggle."""
+    threshold = IndexPageReporter.TEST_ID_COLLAPSE_THRESHOLD
+    ids = frozenset(f"tests/test_mod.py::test_{i}" for i in range(threshold))
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", ids)
+    assert html.count("<li>") == threshold
+    assert "show-more" not in html
+    assert "show-less" not in html
+    assert "test-id-overflow" not in html
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_collapsed_when_above_threshold():
+    """More than TEST_ID_COLLAPSE_THRESHOLD IDs → first N visible, rest hidden, toggle links present."""
+    threshold = IndexPageReporter.TEST_ID_COLLAPSE_THRESHOLD
+    ids = frozenset(f"tests/test_mod.py::test_{i:03d}" for i in range(threshold + 5))
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", ids)
+    # overflow list is hidden by default
+    assert 'class="test-id-list test-id-overflow" style="display:none"' in html
+    # show-more visible, show-less hidden
+    assert 'class="test-id-show-more"' in html
+    assert 'class="test-id-show-less" style="display:none"' in html
+    # total IDs present in markup
+    assert html.count("<li>") == threshold + 5
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_ids_are_sorted():
+    ids = frozenset(["z_test", "a_test", "m_test"])
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", ids)
+    a_pos = html.index("a_test")
+    m_pos = html.index("m_test")
+    z_pos = html.index("z_test")
+    assert a_pos < m_pos < z_pos
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_overflow_split_is_correct():
+    """First TEST_ID_COLLAPSE_THRESHOLD sorted IDs go into the visible list, the rest into overflow."""
+    threshold = IndexPageReporter.TEST_ID_COLLAPSE_THRESHOLD
+    ids = frozenset(f"test_{i:03d}" for i in range(threshold + 3))
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", ids)
+    sorted_ids = sorted(ids)
+    # The (threshold)th ID should be in the visible list (before the overflow ul)
+    overflow_start = html.index("test-id-overflow")
+    last_visible = sorted_ids[threshold - 1]
+    first_overflow = sorted_ids[threshold]
+    assert html.index(last_visible) < overflow_start
+    assert html.index(first_overflow) > overflow_start
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_col_hidden_applied():
+    """inc-test-ids is hidden by default; the cell must carry col-hidden."""
+    html = IndexPageReporter()._render_index_test_id_list_cell(
+        "inc-test-ids", frozenset(["some::test"])
+    )
+    assert 'class="col-hidden"' in html
+
+
+@covers(IndexPageReporter._render_index_test_id_list_cell)
+def test_index_test_id_cell_escapes_special_chars():
+    ids = frozenset(['tests/test_x.py::test_<foo>&"bar"'])
+    html = IndexPageReporter()._render_index_test_id_list_cell("inc-test-ids", ids)
+    assert "&lt;" in html
+    assert "&gt;" in html
+    assert "&amp;" in html
+    assert "&quot;" in html
