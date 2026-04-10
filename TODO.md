@@ -22,7 +22,7 @@ CORE
   *  !!! the Tracing and Reporting coordinators can't actually be subclassed in a 100% useful way. They already register hooks, so their hooks will get called. What can be done is for the hooks to call user-code. Therefore, we should refactor them, 
 
 REPORTING:
-  * ordering or html columns
+  * [v] ordering or html columns
   * (optional) resizing of columns
   * See the exact tests that covered (incidentally & deliberately) every line
   * index should show # inc/del tests

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html as _html
 
-from coverage_stats.reporters.models import FolderNode
+from coverage_stats.reporters.models import FolderNode, IndexRowData
 from coverage_stats.reporters.html_report_helpers.mixins import HtmlReporterMixin
 
 
@@ -86,6 +86,29 @@ class IndexPageReporter(HtmlReporterMixin):
         ),
     }
 
+    def _sort_data_attrs(self, row: IndexRowData, name: str) -> str:
+        """Build data-sort-* attribute string for an index table row."""
+        fmt = f".{self.precision}f"
+        return (
+            f' data-sort-name="{_html.escape(name)}"'
+            f' data-sort-stmts="{row.total_stmts}"'
+            f' data-sort-total-pct="{row.total_pct:{fmt}}"'
+            f' data-sort-delib-pct="{row.deliberate_pct:{fmt}}"'
+            f' data-sort-incid-pct="{row.incidental_pct:{fmt}}"'
+            f' data-sort-delib-covered="{row.deliberate_covered}"'
+            f' data-sort-incid-covered="{row.incidental_covered}"'
+            f' data-sort-inc-asserts="{row.incidental_asserts}"'
+            f' data-sort-del-asserts="{row.deliberate_asserts}"'
+            f' data-sort-inc-assert-density="{row.inc_assert_density:{fmt}}"'
+            f' data-sort-del-assert-density="{row.del_assert_density:{fmt}}"'
+        )
+
+    @staticmethod
+    def _th_sort_cls(col: str, columns: dict[str, bool]) -> str:
+        """Return class attribute for a sortable index <th>: always includes 'sortable'."""
+        classes = "sortable" if columns.get(col, True) else "sortable col-hidden"
+        return f' class="{classes}"'
+
     def _collect_ranges(self, node: FolderNode) -> dict[str, float]:
         """DFS-collect max values for the range-bucketed index columns."""
         maxv: dict[str, float] = {
@@ -113,10 +136,13 @@ class IndexPageReporter(HtmlReporterMixin):
     def _render_tree_rows(
         self, node: FolderNode, depth: int, parent_id: str,
         _ranges: dict[str, float] | None = None,
+        _idx: list[int] | None = None,
     ) -> list[str]:
         """DFS traversal: emit a folder row then its children (subfolders, then files)."""
         if _ranges is None:
             _ranges = self._collect_ranges(node)
+        if _idx is None:
+            _idx = [0]
 
         rows: list[str] = []
         parent_attr = f' data-parent="{parent_id}"' if parent_id else ""
@@ -141,8 +167,12 @@ class IndexPageReporter(HtmlReporterMixin):
             tpct_lvl = self._color_level(row.total_pct)
             dpct_lvl = self._color_level(row.deliberate_pct)
             ipct_lvl = self._color_level(row.incidental_pct)
+            sort_attrs = self._sort_data_attrs(row, name)
+            orig_idx = _idx[0]
+            _idx[0] += 1
             rows.append(
                 f'<tr id="{fid}" class="folder-row"{parent_attr}'
+                f' data-original-index="{orig_idx}"{sort_attrs}'
                 f' onclick="toggleFolder(\'{fid}\')">'
                 f'<td style="padding-left:{folder_indent}px">'
                 f'<span class="toggle">&#x25bc;</span> {_html.escape(name)}/</td>'
@@ -158,7 +188,7 @@ class IndexPageReporter(HtmlReporterMixin):
                 f'<td data-col="del-assert-density"{cell_cls("del-assert-density", self._bucket_level(row.del_assert_density, _ranges["del-assert-density"]))}>{row.del_assert_density:{fmt}}</td>'
                 f'</tr>'
             )
-            rows.extend(self._render_tree_rows(sub, depth + 1, fid, _ranges))
+            rows.extend(self._render_tree_rows(sub, depth + 1, fid, _ranges, _idx))
 
         for entry in sorted(node.files, key=lambda f: f.rel_path):
             filename = entry.rel_path.split("/")[-1]
@@ -167,8 +197,11 @@ class IndexPageReporter(HtmlReporterMixin):
             tpct_lvl = self._color_level(row.total_pct)
             dpct_lvl = self._color_level(row.deliberate_pct)
             ipct_lvl = self._color_level(row.incidental_pct)
+            sort_attrs = self._sort_data_attrs(row, filename)
+            orig_idx = _idx[0]
+            _idx[0] += 1
             rows.append(
-                f'<tr{parent_attr}>'
+                f'<tr{parent_attr} data-original-index="{orig_idx}"{sort_attrs}>'
                 f'<td style="padding-left:{file_indent}px">'
                 f'<a href="{_html.escape(file_html_name)}">{_html.escape(filename)}</a></td>'
                 f'<td data-col="stmts"{cell_cls("stmts")}>{row.total_stmts}</td>'
@@ -188,12 +221,13 @@ class IndexPageReporter(HtmlReporterMixin):
 
     def render_index_page(self, rows_html: str) -> str:
         idx = self.INDEX_COLUMNS
-        c = self._c
+        sc = self._th_sort_cls
         col_controls = self._col_controls_html(idx, self.INDEX_COL_LABELS, self.INDEX_COL_DESCS)
         help_popup = self._help_popup_html(
             "index-help", idx, self.INDEX_COL_LABELS, self.INDEX_COL_DESCS
         )
         help_btn = '<button class="help-btn" onclick="openHelp(\'index-help\')">?</button>'
+        onclick = 'onclick="tableSorter.handleClick(this)"'
         return (
             f'<!DOCTYPE html>'
             f'<html lang="en">'
@@ -209,19 +243,19 @@ class IndexPageReporter(HtmlReporterMixin):
             f'<h1>Coverage Stats {help_btn}</h1>'
             f'{help_popup}'
             f'{col_controls}'
-            f'<table>'
+            f'<table id="coverage-table">'
             f'<thead><tr>'
-            f'<th>File</th>'
-            f'<th data-col="stmts"{c("stmts", idx)}>Stmts</th>'
-            f'<th data-col="total-pct"{c("total-pct", idx)}>Total %</th>'
-            f'<th data-col="delib-pct"{c("delib-pct", idx)}>Deliberate %</th>'
-            f'<th data-col="incid-pct"{c("incid-pct", idx)}>Incidental %</th>'
-            f'<th data-col="delib-covered"{c("delib-covered", idx)}>Del. Covered</th>'
-            f'<th data-col="incid-covered"{c("incid-covered", idx)}>Inc. Covered</th>'
-            f'<th data-col="inc-asserts"{c("inc-asserts", idx)}>Inc. Asserts</th>'
-            f'<th data-col="del-asserts"{c("del-asserts", idx)}>Del. Asserts</th>'
-            f'<th data-col="inc-assert-density"{c("inc-assert-density", idx)}>Inc. Assert Density</th>'
-            f'<th data-col="del-assert-density"{c("del-assert-density", idx)}>Del. Assert Density</th>'
+            f'<th class="sortable" data-col="name" {onclick}>File</th>'
+            f'<th data-col="stmts"{sc("stmts", idx)} {onclick}>Stmts</th>'
+            f'<th data-col="total-pct"{sc("total-pct", idx)} {onclick}>Total %</th>'
+            f'<th data-col="delib-pct"{sc("delib-pct", idx)} {onclick}>Deliberate %</th>'
+            f'<th data-col="incid-pct"{sc("incid-pct", idx)} {onclick}>Incidental %</th>'
+            f'<th data-col="delib-covered"{sc("delib-covered", idx)} {onclick}>Del. Covered</th>'
+            f'<th data-col="incid-covered"{sc("incid-covered", idx)} {onclick}>Inc. Covered</th>'
+            f'<th data-col="inc-asserts"{sc("inc-asserts", idx)} {onclick}>Inc. Asserts</th>'
+            f'<th data-col="del-asserts"{sc("del-asserts", idx)} {onclick}>Del. Asserts</th>'
+            f'<th data-col="inc-assert-density"{sc("inc-assert-density", idx)} {onclick}>Inc. Assert Density</th>'
+            f'<th data-col="del-assert-density"{sc("del-assert-density", idx)} {onclick}>Del. Assert Density</th>'
             f'</tr></thead>'
             f'<tbody>{rows_html}</tbody>'
             f'</table>'

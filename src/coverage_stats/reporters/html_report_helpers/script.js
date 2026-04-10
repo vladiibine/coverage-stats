@@ -32,6 +32,144 @@ function hideDescendants(id) {
     });
 }
 
+// Column sorting — sortable table with folder-tree awareness
+class TableSorter {
+    constructor(tableId) {
+        this._tableId = tableId;
+        this._currentCol = null;
+        this._currentDir = null;
+        this._tbody = null;
+        this._headers = {};
+    }
+
+    init() {
+        var table = document.getElementById(this._tableId);
+        if (!table) { return; }
+        this._tbody = table.querySelector('tbody');
+        var self = this;
+        table.querySelectorAll('th.sortable').forEach(function(th) {
+            self._headers[th.dataset.col] = th;
+        });
+    }
+
+    handleClick(th) {
+        var col = th.dataset.col;
+        if (this._currentCol === col) {
+            if (this._currentDir === 'asc') {
+                this._setSort(col, 'desc');
+            } else {
+                this._clearSort();
+            }
+        } else {
+            this._setSort(col, 'asc');
+        }
+    }
+
+    _setSort(col, dir) {
+        this._clearIndicators();
+        this._currentCol = col;
+        this._currentDir = dir;
+        var th = this._headers[col];
+        if (th) { th.classList.add('sort-' + dir); }
+        this._applySort();
+    }
+
+    _clearSort() {
+        this._clearIndicators();
+        this._currentCol = null;
+        this._currentDir = null;
+        this._restoreOriginal();
+    }
+
+    _clearIndicators() {
+        var headers = this._headers;
+        Object.keys(headers).forEach(function(col) {
+            headers[col].classList.remove('sort-asc', 'sort-desc');
+        });
+    }
+
+    _applySort() {
+        var rows = Array.from(this._tbody.querySelectorAll('tr'));
+        var tree = this._buildTree(rows);
+        this._sortTree(tree, this._currentCol, this._currentDir);
+        var sorted = this._flattenTree(tree);
+        var tbody = this._tbody;
+        sorted.forEach(function(row) { tbody.appendChild(row); });
+    }
+
+    _restoreOriginal() {
+        var rows = Array.from(this._tbody.querySelectorAll('tr'));
+        rows.sort(function(a, b) {
+            return parseInt(a.dataset.originalIndex) - parseInt(b.dataset.originalIndex);
+        });
+        var tbody = this._tbody;
+        rows.forEach(function(row) { tbody.appendChild(row); });
+    }
+
+    _buildTree(rows) {
+        var tree = {};
+        rows.forEach(function(row) {
+            var parent = row.dataset.parent !== undefined ? row.dataset.parent : '';
+            if (!tree[parent]) { tree[parent] = []; }
+            tree[parent].push(row);
+        });
+        return tree;
+    }
+
+    _sortTree(tree, col, dir) {
+        var comparator = this._makeComparator(col, dir);
+        Object.keys(tree).forEach(function(parent) {
+            tree[parent].sort(comparator);
+        });
+    }
+
+    _makeComparator(col, dir) {
+        var self = this;
+        var mult = dir === 'asc' ? 1 : -1;
+        return function(a, b) {
+            var av = self._getSortValue(a, col);
+            var bv = self._getSortValue(b, col);
+            if (av < bv) { return -mult; }
+            if (av > bv) { return mult; }
+            return 0;
+        };
+    }
+
+    _colToDataKey(col) {
+        var camel = col.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
+        return 'sort' + camel.charAt(0).toUpperCase() + camel.slice(1);
+    }
+
+    _getSortValue(row, col) {
+        var key = this._colToDataKey(col);
+        var val = row.dataset[key];
+        if (val === undefined || val === '') { return ''; }
+        var num = parseFloat(val);
+        return isNaN(num) ? val.toLowerCase() : num;
+    }
+
+    _flattenTree(tree) {
+        var result = [];
+        this._flattenNode(result, '', tree);
+        return result;
+    }
+
+    _flattenNode(result, parentId, tree) {
+        var self = this;
+        var children = tree[parentId] || [];
+        children.forEach(function(row) {
+            result.push(row);
+            var rowId = row.id;
+            if (rowId && tree[rowId]) {
+                self._flattenNode(result, rowId, tree);
+            }
+        });
+    }
+}
+
+var tableSorter = new TableSorter('coverage-table');
+document.addEventListener('DOMContentLoaded', function() { tableSorter.init(); });
+
 // Column visibility — persisted in localStorage
 (function() {
     var KEY = 'cov-stats-col-prefs';

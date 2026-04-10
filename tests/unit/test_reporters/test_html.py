@@ -101,7 +101,7 @@ def test_index_contains_table_and_folder_row(tmp_path):
     report = DefaultReportBuilder().build(store, config)
     HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
-    assert "<table>" in content
+    assert '<table id="coverage-table">' in content
     assert "folder-row" in content
 
 
@@ -134,7 +134,7 @@ def test_multiple_folders_appear_in_single_table(tmp_path):
     report = DefaultReportBuilder().build(store, config)
     HtmlReporter().write(report,out_dir)
     content = (out_dir / "index.html").read_text()
-    assert content.count("<table>") == 1  # single table
+    assert content.count('<table id="coverage-table">') == 1  # single table
     assert content.count('class="folder-row"') == 2  # one row per top-level folder
 
 
@@ -521,7 +521,7 @@ def test_render_index_page_full_html():
     assert "<style>" in result
     assert "<script>" in result
     assert "<tr><td>row</td></tr>" in result
-    assert "<table>" in result
+    assert '<table id="coverage-table">' in result
 
 
 @covers(HtmlReporter.render_file_page)
@@ -868,9 +868,11 @@ def test_index_col_hidden_matches_python_defaults():
                 f"column '{col_id}' is True but has col-hidden"
             )
         else:
-            assert f'data-col="{col_id}" class="col-hidden"' in body, (
-                f"column '{col_id}' is False but missing col-hidden"
-            )
+            # th uses 'sortable col-hidden'; td (when rows present) uses just 'col-hidden'
+            assert (
+                f'data-col="{col_id}" class="col-hidden"' in body
+                or f'data-col="{col_id}" class="sortable col-hidden"' in body
+            ), f"column '{col_id}' is False but missing col-hidden"
 
 
 @covers(HtmlReporter.render_file_page)
@@ -982,7 +984,7 @@ def test_index_column_gets_col_hidden_when_python_config_is_true():
     body = html[html.index("<body>"):]
 
     # Column is visible: header and data cells render without col-hidden
-    assert '<th data-col="stmts">' in body, "stmts th must be present and visible"
+    assert 'data-col="stmts" class="sortable"' in body, "stmts th must be present and visible"
     assert 'data-col="stmts">5</td>' in body, "stmts td must contain the value without col-hidden"
     assert 'data-col="stmts" class="col-hidden"' not in body, "th for stmts must not carry col-hidden when True"
     assert 'data-col="total-pct" class="col-hidden"' not in body, "other cols must not be hidden"

@@ -115,6 +115,20 @@ a {
 .col-controls input[type="checkbox"] {
     cursor: pointer;
 }
+/* Sortable column headers */
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+th.sortable:hover {
+    background: #e0e0e0;
+}
+th.sort-asc::after {
+    content: " \25b2";
+}
+th.sort-desc::after {
+    content: " \25bc";
+}
 /* Column show/hide transition — fade only; width snaps cleanly */
 th[data-col], td[data-col] {
     transition: opacity 0.2s ease;
