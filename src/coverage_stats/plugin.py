@@ -12,6 +12,7 @@ import pytest
 if TYPE_CHECKING:
     from coverage_stats.covers import CoverageStatsResolver
     from coverage_stats.executable_lines import ExecutableLinesAnalyzer
+    from coverage_stats.reporters.branch_analysis import BranchWalker
     from coverage_stats.profiler import LineTracer, ProfilerContext
     from coverage_stats.reporters.base import Reporter
     from coverage_stats.reporters.coverage_py_interop import CoveragePyInteropProto
@@ -47,6 +48,7 @@ class CoverageStatsCustomization:
     reporting_coordinator = "coverage_stats.reporting_coordinator.ReportingCoordinator"
     resolver = "coverage_stats.covers.CoverageStatsResolver"
     executable_lines_analyzer = "coverage_stats.executable_lines.ExecutableLinesAnalyzer"
+    branch_walker = "coverage_stats.reporters.branch_analysis.BranchWalker"
 
     def __init__(self, config: pytest.Config) -> None:
         self.config = config
@@ -79,10 +81,10 @@ class CoverageStatsCustomization:
         return cls(context, store)
 
     def get_report_builder(self) -> ReportBuilder:
-        return self._load_class(self.report_builder)(self.get_executable_lines_analyzer())  # type: ignore[no-any-return]
+        return self._load_class(self.report_builder)(self.get_executable_lines_analyzer(), self.get_branch_walker())  # type: ignore[no-any-return]
 
     def get_coverage_py_interop(self) -> CoveragePyInteropProto:
-        return self._load_class(self.coverage_py_interop)()  # type: ignore[no-any-return]
+        return self._load_class(self.coverage_py_interop)(self.get_branch_walker())  # type: ignore[no-any-return]
 
     def get_tracing_coordinator(
         self,
@@ -96,6 +98,9 @@ class CoverageStatsCustomization:
 
     def get_executable_lines_analyzer(self) -> ExecutableLinesAnalyzer:
         return self._load_class(self.executable_lines_analyzer)()  # type: ignore[no-any-return]
+
+    def get_branch_walker(self) -> BranchWalker:
+        return self._load_class(self.branch_walker)()  # type: ignore[no-any-return]
 
     def get_resolver(self) -> CoverageStatsResolver:
         return self._load_class(self.resolver)(self.get_executable_lines_analyzer())  # type: ignore[no-any-return]

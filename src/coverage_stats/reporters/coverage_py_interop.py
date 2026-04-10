@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import ast
-import sys
 import warnings
 from typing import Any, Callable, Protocol
 
-from coverage_stats.reporters.models import _is_wildcard_case
+from coverage_stats.reporters.branch_analysis import BranchWalker
 from coverage_stats.store import LineData, SessionStore
 
 
@@ -40,6 +39,9 @@ class CoveragePyInterop:
 
     _COVERAGE_MIN_VERSION = (7, 0)
 
+    def __init__(self, branch_walker: BranchWalker | None = None) -> None:
+        self._branch_walker = branch_walker if branch_walker is not None else BranchWalker()
+
     def _check_coverage_version(self) -> bool:
         """Return True if coverage.py is installed and meets the minimum supported version.
 
@@ -70,99 +72,20 @@ class CoveragePyInterop:
 
         For false branches without an explicit else/elif, the destination is the
         first statement that follows the entire if/while/for block in source order.
-        This is found by walking up the AST parent chain until a next sibling
-        statement is found.  Arcs whose destination cannot be determined (e.g. a
-        branch at the very end of a module with nothing following it) are omitted
-        rather than guessed.
+        Arcs whose destination cannot be determined are omitted rather than guessed.
         """
-        def _count(lineno: int) -> int:
-            ld = lines.get(lineno)
-            return (ld.incidental_executions + ld.deliberate_executions) if ld else 0
-
         try:
             source = open(path, encoding="utf-8", errors="replace").read()
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             return []
 
-        # Map id(node) → parent so we can walk up the tree.
-        parent_map: dict[int, ast.AST] = {}
-        for node in ast.walk(tree):
-            for child in ast.iter_child_nodes(node):
-                parent_map[id(child)] = node
-
-        def _next_sibling_lineno(node: ast.AST) -> int | None:
-            """Return the lineno of the first statement after *node*.
-
-            Searches each statement-body attribute of the parent in turn.  If
-            *node* is the last statement in its parent body, recurse up to find
-            the continuation after the enclosing block.  Returns None when there
-            is no continuation (e.g. end of module).
-            """
-            parent = parent_map.get(id(node))
-            if parent is None:
-                return None
-            for attr in ("body", "orelse", "handlers", "finalbody"):
-                siblings: list[ast.AST] = getattr(parent, attr, None) or []
-                try:
-                    idx = siblings.index(node)
-                except ValueError:
-                    continue
-                if idx + 1 < len(siblings):
-                    return int(siblings[idx + 1].lineno)  # type: ignore[attr-defined]
-                # node is last in this list — look for a continuation higher up
-                return _next_sibling_lineno(parent)
-            return None
-
         arcs: list[tuple[int, int]] = []
-
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.If, ast.While, ast.For)):
-                continue
-            if_count = _count(node.lineno)
-            if if_count == 0:
-                continue
-            body_lineno = node.body[0].lineno
-            body_count = _count(body_lineno)
-            true_taken = body_count > 0
-            if node.orelse:
-                orelse_lineno = node.orelse[0].lineno
-                false_taken = _count(orelse_lineno) > 0
-                if true_taken:
-                    arcs.append((node.lineno, body_lineno))
-                if false_taken:
-                    arcs.append((node.lineno, orelse_lineno))
-            else:
-                false_taken = if_count > body_count
-                if true_taken:
-                    arcs.append((node.lineno, body_lineno))
-                if false_taken:
-                    next_line = _next_sibling_lineno(node)
-                    if next_line is not None:
-                        arcs.append((node.lineno, next_line))
-
-        if sys.version_info >= (3, 10):
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Match):
-                    continue
-                for i, case in enumerate(node.cases):
-                    case_line = case.pattern.lineno
-                    is_last = i == len(node.cases) - 1
-                    if is_last and self._is_wildcard_case(case):
-                        continue
-                    body_lineno = case.body[0].lineno
-                    body_taken = _count(body_lineno) > 0
-                    if is_last:
-                        if body_taken:
-                            arcs.append((case_line, body_lineno))
-                    else:
-                        next_case_lineno = node.cases[i + 1].pattern.lineno
-                        next_case_taken = _count(next_case_lineno) > 0
-                        if body_taken:
-                            arcs.append((case_line, body_lineno))
-                        if next_case_taken:
-                            arcs.append((case_line, next_case_lineno))
-
+        for bd in self._branch_walker.walk_branches(tree, lines):
+            if bd.true_taken:
+                arcs.append((bd.node_line, bd.true_target))
+            if bd.false_taken and bd.false_target is not None:
+                arcs.append((bd.node_line, bd.false_target))
         return arcs
 
     def compute_full_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
@@ -348,6 +271,3 @@ class CoveragePyInterop:
         except Exception as exc:
             warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")
 
-    @staticmethod
-    def _is_wildcard_case(case: ast.match_case) -> bool:
-        return _is_wildcard_case(case)

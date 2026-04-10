@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 from typing import Protocol
 
 import pytest
 
 from coverage_stats.executable_lines import ExecutableLinesAnalyzer
+from coverage_stats.reporters.branch_analysis import BranchWalker
 from coverage_stats.reporters.models import (
     _BranchAnalysis,
-    _is_wildcard_case,
     CoverageReport,
     FileSummary,
     FileReport,
@@ -40,8 +39,13 @@ class ReportBuilder(Protocol):
 class DefaultReportBuilder:
     """Default implementation of the ReportBuilder protocol."""
 
-    def __init__(self, analyzer: ExecutableLinesAnalyzer | None = None) -> None:
+    def __init__(
+        self,
+        analyzer: ExecutableLinesAnalyzer | None = None,
+        branch_walker: BranchWalker | None = None,
+    ) -> None:
         self._analyzer = analyzer if analyzer is not None else ExecutableLinesAnalyzer()
+        self._branch_walker = branch_walker if branch_walker is not None else BranchWalker()
 
     def build(self, store: SessionStore, config: pytest.Config) -> CoverageReport:
         """Build a CoverageReport from the session store and pytest config."""
@@ -154,18 +158,6 @@ class DefaultReportBuilder:
         - match last wildcard case: 0 arcs (always matches — no branching).
         - match last non-wildcard case: 1 arc (body taken).
         """
-        def _count(lineno: int) -> int:
-            ld = lines.get(lineno)
-            return (ld.incidental_executions + ld.deliberate_executions) if ld else 0
-
-        def _del_count(lineno: int) -> int:
-            ld = lines.get(lineno)
-            return ld.deliberate_executions if ld else 0
-
-        def _inc_count(lineno: int) -> int:
-            ld = lines.get(lineno)
-            return ld.incidental_executions if ld else 0
-
         try:
             source = open(path, encoding="utf-8", errors="replace").read()
             tree = ast.parse(source)
@@ -178,74 +170,13 @@ class DefaultReportBuilder:
         arcs_deliberate = 0
         arcs_incidental = 0
 
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.If, ast.While, ast.For)):
-                continue
-            arcs_total += 2
-            if_count = _count(node.lineno)
-            if if_count == 0:
-                continue
-            body_lineno = node.body[0].lineno
-            body_count = _count(body_lineno)
-            true_taken = body_count > 0
-            if node.orelse:
-                orelse_lineno = node.orelse[0].lineno
-                false_taken = _count(orelse_lineno) > 0
-                if true_taken:
-                    arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                    arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                if false_taken:
-                    arcs_deliberate += 1 if _del_count(orelse_lineno) > 0 else 0
-                    arcs_incidental += 1 if _inc_count(orelse_lineno) > 0 else 0
-            else:
-                false_taken = if_count > body_count
-                if true_taken:
-                    arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                    arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                if false_taken:
-                    arcs_deliberate += 1 if _del_count(node.lineno) > _del_count(body_lineno) else 0
-                    arcs_incidental += 1 if _inc_count(node.lineno) > _inc_count(body_lineno) else 0
-            arcs_covered += (1 if true_taken else 0) + (1 if false_taken else 0)
-            if not true_taken or not false_taken:
-                partial.add(node.lineno)
-
-        if sys.version_info >= (3, 10):
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Match):
-                    continue
-                for i, case in enumerate(node.cases):
-                    case_line = case.pattern.lineno
-                    is_last = i == len(node.cases) - 1
-                    if is_last and self._is_wildcard_case(case):
-                        # Wildcard always matches — no branching arcs
-                        continue
-                    elif is_last:
-                        arcs_total += 1
-                        if _count(case_line) > 0:
-                            body_lineno = case.body[0].lineno
-                            body_taken = _count(body_lineno) > 0
-                            arcs_covered += 1 if body_taken else 0
-                            if body_taken:
-                                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                            if not body_taken:
-                                partial.add(case_line)
-                    else:
-                        arcs_total += 2
-                        if _count(case_line) > 0:
-                            body_lineno = case.body[0].lineno
-                            next_case_lineno = node.cases[i + 1].pattern.lineno
-                            body_taken = _count(body_lineno) > 0
-                            next_case_taken = _count(next_case_lineno) > 0
-                            arcs_covered += (1 if body_taken else 0) + (1 if next_case_taken else 0)
-                            if body_taken:
-                                arcs_deliberate += 1 if _del_count(body_lineno) > 0 else 0
-                                arcs_incidental += 1 if _inc_count(body_lineno) > 0 else 0
-                            if next_case_taken:
-                                arcs_deliberate += 1 if _del_count(next_case_lineno) > 0 else 0
-                                arcs_incidental += 1 if _inc_count(next_case_lineno) > 0 else 0
-                            if not body_taken or not next_case_taken:
-                                partial.add(case_line)
+        for bd in self._branch_walker.walk_branches(tree, lines):
+            arcs_total += bd.arc_count
+            arcs_covered += (1 if bd.true_taken else 0) + (1 if bd.false_taken else 0)
+            arcs_deliberate += (1 if bd.deliberate_true else 0) + (1 if bd.deliberate_false else 0)
+            arcs_incidental += (1 if bd.incidental_true else 0) + (1 if bd.incidental_false else 0)
+            if bd.is_partial:
+                partial.add(bd.node_line)
 
         return _BranchAnalysis(
             partial=partial,
@@ -259,7 +190,3 @@ class DefaultReportBuilder:
     def _pct(numerator: int, denominator: int) -> float:
         """Coverage percentage; returns 100.0 when denominator is 0 (nothing to cover)."""
         return numerator / denominator * 100.0 if denominator else 100.0
-
-    @staticmethod
-    def _is_wildcard_case(case: ast.match_case) -> bool:
-        return _is_wildcard_case(case)
