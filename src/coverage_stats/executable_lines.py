@@ -2,6 +2,22 @@ from __future__ import annotations
 
 import ast
 import sys
+from dataclasses import dataclass
+
+
+@dataclass
+class FileAnalysis:
+    """The result of reading and parsing a single source file once.
+
+    Created by ``ExecutableLinesAnalyzer.analyze`` and consumed by
+    ``DefaultReportBuilder`` to avoid re-reading and re-parsing the same
+    source file multiple times during a single reporting run.
+    """
+
+    path: str
+    tree: ast.Module
+    source_lines: list[str]
+    executable_lines: set[int]
 
 
 class ExecutableLinesAnalyzer:
@@ -15,6 +31,26 @@ class ExecutableLinesAnalyzer:
     change what counts as executable.
     """
 
+    def analyze(self, path: str) -> FileAnalysis | None:
+        """Read and parse *path* once, returning a ``FileAnalysis``.
+
+        Returns ``None`` if the file cannot be read or parsed.  The returned
+        object holds the AST, split source lines, and pre-computed executable
+        line numbers so callers (e.g. ``DefaultReportBuilder.build``) can
+        avoid re-reading and re-parsing the same file for branch analysis.
+        """
+        try:
+            source = open(path, encoding="utf-8", errors="replace").read()
+            tree = ast.parse(source)
+        except (OSError, SyntaxError):
+            return None
+        return FileAnalysis(
+            path=path,
+            tree=tree,
+            source_lines=source.splitlines(),
+            executable_lines=self._compute_executable_from_tree(tree),
+        )
+
     def get_executable_lines(self, path: str) -> set[int]:
         """Return the set of line numbers that contain executable statements in *path*.
 
@@ -27,12 +63,15 @@ class ExecutableLinesAnalyzer:
 
         Returns an empty set if the file cannot be read or compiled.
         """
-        try:
-            source = open(path, encoding="utf-8", errors="replace").read()
-            tree = ast.parse(source)
-        except (OSError, SyntaxError):
-            return set()
+        fa = self.analyze(path)
+        return fa.executable_lines if fa is not None else set()
 
+    def _compute_executable_from_tree(self, tree: ast.AST) -> set[int]:
+        """Compute the executable line set from an already-parsed AST.
+
+        Extracted from ``get_executable_lines`` so that ``analyze`` can reuse
+        the same logic without a second ``ast.parse`` call.
+        """
         result: set[int] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.stmt):

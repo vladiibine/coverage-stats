@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from typing import Protocol
 
 import pytest
 
-from coverage_stats.executable_lines import ExecutableLinesAnalyzer
+from coverage_stats.executable_lines import ExecutableLinesAnalyzer, FileAnalysis
 from coverage_stats.reporters.branch_analysis import BranchWalker
 from coverage_stats.reporters.models import (
     _BranchAnalysis,
@@ -56,18 +55,19 @@ class DefaultReportBuilder:
             except ValueError:
                 rel_path = Path(abs_path).as_posix()
 
-            try:
-                source_lines = Path(abs_path).read_text(encoding="utf-8", errors="replace").splitlines()
-                source_map = {i + 1: line for i, line in enumerate(source_lines)}
-                all_linenos: list[int] = list(range(1, len(source_lines) + 1))
-            except Exception:
+            file_analysis = self._analyzer.analyze(abs_path)
+            if file_analysis is not None:
+                source_map = {i + 1: line for i, line in enumerate(file_analysis.source_lines)}
+                all_linenos: list[int] = list(range(1, len(file_analysis.source_lines) + 1))
+                executable = file_analysis.executable_lines
+            else:
                 all_linenos = sorted(line_data.keys())
                 source_map = {}
+                executable = set()
 
-            executable = self._analyzer.get_executable_lines(abs_path)
             total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(line_data)
 
-            branch_analysis = self._analyze_branches(abs_path, line_data)
+            branch_analysis = self._analyze_branches(file_analysis, line_data)
 
             total_covered = sum(
                 1 for ln in executable
@@ -144,7 +144,7 @@ class DefaultReportBuilder:
             node.files.append(s)
         return root
 
-    def _analyze_branches(self, path: str, lines: dict[int, LineData]) -> _BranchAnalysis:
+    def _analyze_branches(self, file_analysis: FileAnalysis | None, lines: dict[int, LineData]) -> _BranchAnalysis:
         """Analyze branch coverage, returning partial line numbers and arc counts.
 
         Arc counting mirrors coverage.py's branch-inclusive formula so that:
@@ -157,11 +157,11 @@ class DefaultReportBuilder:
         - match non-last case: 2 arcs (body taken, next case reached).
         - match last wildcard case: 0 arcs (always matches — no branching).
         - match last non-wildcard case: 1 arc (body taken).
+
+        *file_analysis* is ``None`` when the source file could not be read or
+        parsed, in which case an empty ``_BranchAnalysis`` is returned.
         """
-        try:
-            source = open(path, encoding="utf-8", errors="replace").read()
-            tree = ast.parse(source)
-        except (OSError, SyntaxError):
+        if file_analysis is None:
             return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0, arcs_deliberate=0, arcs_incidental=0)
 
         partial: set[int] = set()
@@ -170,7 +170,7 @@ class DefaultReportBuilder:
         arcs_deliberate = 0
         arcs_incidental = 0
 
-        for bd in self._branch_walker.walk_branches(tree, lines):
+        for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
             arcs_total += bd.arc_count
             arcs_covered += (1 if bd.true_taken else 0) + (1 if bd.false_taken else 0)
             arcs_deliberate += (1 if bd.deliberate_true else 0) + (1 if bd.deliberate_false else 0)

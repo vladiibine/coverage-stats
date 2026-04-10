@@ -79,7 +79,14 @@ class CoveragePyInterop:
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             return []
+        return self._compute_arcs_from_tree(tree, lines)
 
+    def _compute_arcs_from_tree(self, tree: ast.AST, lines: dict[int, LineData]) -> list[tuple[int, int]]:
+        """Compute branch arcs from an already-parsed AST.
+
+        Extracted from ``compute_arcs`` so that ``compute_full_arcs`` can
+        share the same parsed tree without a second ``ast.parse`` call.
+        """
         arcs: list[tuple[int, int]] = []
         for bd in self._branch_walker.walk_branches(tree, lines):
             if bd.true_taken:
@@ -165,7 +172,8 @@ class CoveragePyInterop:
             arcs.add((fn_lines[-1], -scope_key))
 
         # Branch arcs (may duplicate sequential arcs — set handles dedup).
-        for arc in self.compute_arcs(path, lines):
+        # Use the already-parsed tree to avoid a second ast.parse call.
+        for arc in self._compute_arcs_from_tree(tree, lines):
             arcs.add(arc)
 
         return list(arcs)
