@@ -170,3 +170,12 @@ mypy src/
 ```
 
 mypy is configured in `pyproject.toml` under `[tool.mypy]` with strict mode enabled.
+
+## Publishing
+```bash
+# 1. build
+python -m build
+
+# 2. upload
+twine upload dist/*
+```

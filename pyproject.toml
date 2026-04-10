@@ -1,12 +1,21 @@
+[project]
+name = "coverage-stats"
+version = "0.1.1"
+requires-python = ">=3.9"
+description = "Per-line deliberate/incidental coverage, # tests, # asserts & other stats stats for pytest"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+keywords = ["pytest", "coverage", "testing"]
+classifiers = [
+    "Framework :: Pytest",
+    "Programming Language :: Python :: 3",
+]
+
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "coverage-stats"
-version = "0.1.0"
-requires-python = ">=3.9"
-dependencies = ["pytest"]
 
 [project.optional-dependencies]
 dev = ["ruff", "mypy", "nox", "coverage[toml]", "pytest-cov", "pytest-xdist", "import-linter"]
@@ -67,3 +76,9 @@ source_modules = [
     "coverage_stats.store",
 ]
 forbidden_modules = ["coverage_stats.plugin"]
+
+[dependency-groups]
+dev = [
+    "build>=1.4.2",
+    "twine>=6.2.0",
+]
