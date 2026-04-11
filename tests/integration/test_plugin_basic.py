@@ -196,3 +196,131 @@ coverage_stats_output_dir = coverage-stats-report
     assert has_incidental_asserts, (
         f"Expected incidental_asserts > 0 on executed lines, got: {executed_lines}"
     )
+
+
+def test_code_asserts_not_counted_as_incidental_asserts(pytester):
+    """Assert statements inside production code must NOT be counted as test asserts.
+
+    pytest_assertion_pass only fires for pytest-rewritten assertions (test files).
+    A plain `assert` in a library function is not rewritten, so it must not
+    inflate incidental_asserts beyond the number of asserts in the test itself.
+    """
+    # Production code with 3 assert statements
+    pytester.makepyfile(
+        mylib="""
+def validate(x):
+    assert isinstance(x, int), "must be int"
+    assert x >= 0, "must be non-negative"
+    assert x < 1000, "must be small"
+    return x * 2
+"""
+    )
+
+    # Test has exactly 1 assert statement
+    pytester.makepyfile(
+        test_mylib="""
+from mylib import validate
+
+def test_validate():
+    assert validate(5) == 10
+"""
+    )
+
+    pytester.makeini(
+        """
+[pytest]
+coverage_stats_source = .
+coverage_stats_format = json
+coverage_stats_output_dir = coverage-stats-report
+"""
+    )
+
+    result = pytester.runpytest("--coverage-stats", "-v")
+    result.assert_outcomes(passed=1)
+
+    report = __import__("json").loads(
+        (pytester.path / "coverage-stats-report" / "coverage-stats.json").read_text()
+    )
+    lines = report["files"][
+        next(k for k in report["files"] if "mylib" in k and "test_" not in k)
+    ]["lines"]
+
+    # Lines executed *inside a test call* (incidental_tests > 0) are lines 2-5 —
+    # the function body. Line 1 (def statement) is traced at import time, before
+    # any test runs, so it has incidental_tests == 0 and is excluded.
+    in_test = {lno: ld for lno, ld in lines.items() if ld["incidental_tests"] > 0}
+    assert in_test, "Expected lines executed inside a test in mylib"
+
+    # Every line executed inside the test should report exactly 1 incidental assert
+    # — the single `assert validate(5) == 10` in test_validate().
+    # The 3 assert statements inside validate() must not be counted because pytest
+    # does not rewrite assertions in non-test files.
+    for lno, ld in in_test.items():
+        assert ld["incidental_asserts"] == 1, (
+            f"Line {lno}: expected incidental_asserts=1 (one test assert), "
+            f"got {ld['incidental_asserts']} — production code asserts may be leaking in"
+        )
+
+
+def test_conftest_import_lines_are_tracked(pytester):
+    """Module-level lines in libraries imported by conftest.py must appear in the report.
+
+    When conftest.py does ``import mylib``, all module-level code in mylib runs
+    before any test executes.  These are pre-test lines and must be recorded even
+    though they never run during a test call phase.
+
+    Without the early-tracer fix (starting the tracer in pytest_load_initial_conftests
+    with a sys.meta_path ensurer), these lines were invisible to coverage-stats because
+    the tracer was not yet installed when conftest.py was imported.
+    """
+    # No leading blank line so line numbers are predictable:
+    # 1: import os
+    # 2: CONSTANT = 42
+    # 3: class MyClass:
+    # 4:     pass
+    # 5: def helper():
+    # 6:     return CONSTANT
+    pytester.makepyfile(
+        mylib="import os\nCONSTANT = 42\nclass MyClass:\n    pass\ndef helper():\n    return CONSTANT\n"
+    )
+
+    # conftest.py imports mylib at module level — this is the pattern that was broken.
+    pytester.makeconftest("import mylib\n")
+
+    pytester.makepyfile(
+        test_mylib="from mylib import helper\ndef test_helper():\n    assert helper() == 42\n"
+    )
+
+    pytester.makeini(
+        """
+[pytest]
+coverage_stats_source = .
+coverage_stats_format = json
+coverage_stats_output_dir = coverage-stats-report
+"""
+    )
+
+    result = pytester.runpytest("--coverage-stats", "-v")
+    result.assert_outcomes(passed=1)
+
+    report = json.loads(
+        (pytester.path / "coverage-stats-report" / "coverage-stats.json").read_text()
+    )
+    mylib_key = next(
+        (k for k in report["files"] if "mylib" in k and "test_" not in k and "conftest" not in k),
+        None,
+    )
+    assert mylib_key, f"mylib not found in report: {list(report['files'].keys())}"
+
+    lines = report["files"][mylib_key]["lines"]
+    covered = {int(ln) for ln, ld in lines.items() if ld["incidental_executions"] > 0 or ld["deliberate_executions"] > 0}
+
+    # Lines 1 (import os), 2 (CONSTANT = 42), 3 (class MyClass:) execute ONLY at
+    # import time via conftest.py — they are never called during a test.  These
+    # must appear as covered pre-test lines.
+    import_only_lines = {1, 2, 3}
+    missing = import_only_lines - covered
+    assert not missing, (
+        f"Module-level lines executed at conftest import time are missing from the report: {missing}. "
+        f"Covered lines: {sorted(covered)}"
+    )

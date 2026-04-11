@@ -5,7 +5,7 @@ import types
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
     import pytest
@@ -22,6 +22,10 @@ class ProfilerContext:
     current_phase: str | None = None  # "setup" | "call" | "teardown"
     current_assert_count: int = 0
     source_dirs: list[str] = field(default_factory=list)
+    exclude_dirs: list[str] = field(default_factory=list)
+    # Holds the sys.meta_path ensurer registered during pytest_load_initial_conftests
+    # so TracingCoordinator can remove it once conftest loading is done.
+    meta_path_ensurer: Optional[Any] = field(default=None, repr=False)
     current_test_lines: set[tuple[str, int]] = field(default_factory=set)
     # Lines executed before any test phase (module imports, module-level code).
     # Populated when current_phase is None so that module-level statements
@@ -90,6 +94,9 @@ class MonitoringLineTracer:
         self._source_prefixes: list[tuple[str, str]] = [
             (d, d + "/") for d in context.source_dirs
         ]
+        self._exclude_prefixes: list[tuple[str, str]] = [
+            (d, d + "/") for d in context.exclude_dirs
+        ]
 
     def start(self) -> None:
         if self._tool_id is not None:
@@ -125,13 +132,15 @@ class MonitoringLineTracer:
         self._tool_id = None
 
     def _in_scope(self, filename: str) -> bool:
+        if "site-packages" in filename:
+            return False
+        if self._exclude_prefixes and any(
+            filename == d or filename.startswith(p) for d, p in self._exclude_prefixes
+        ):
+            return False
         if self._source_prefixes:
-            return any(
-                filename == d or filename.startswith(p)
-                for d, p in self._source_prefixes
-            )
-        prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
-        return "site-packages" not in filename and not filename.startswith(prefix)
+            return any(filename == d or filename.startswith(p) for d, p in self._source_prefixes)
+        return True
 
     def _monitoring_line(self, code: types.CodeType, line_number: int) -> object:
         """Callback invoked by sys.monitoring for every LINE event.
@@ -143,6 +152,9 @@ class MonitoringLineTracer:
         raw = code.co_filename
         cached = self._scope_cache.get(raw)
         if cached is None:
+            if raw.startswith("<"):
+                self._scope_cache[raw] = (raw, False)
+                return sys.monitoring.DISABLE  # type: ignore[attr-defined]
             filename = str(Path(raw).resolve())
             in_scope = self._in_scope(filename)
             self._scope_cache[raw] = (filename, in_scope)
@@ -192,6 +204,9 @@ class LineTracer:
         self._source_prefixes: list[tuple[str, str]] = [
             (d, d + "/") for d in context.source_dirs
         ]
+        self._exclude_prefixes: list[tuple[str, str]] = [
+            (d, d + "/") for d in context.exclude_dirs
+        ]
 
     def start(self) -> None:
         current = sys.gettrace()
@@ -211,13 +226,15 @@ class LineTracer:
         sys.settrace(self._prev_trace)
 
     def _in_scope(self, filename: str) -> bool:
+        if "site-packages" in filename:
+            return False
+        if self._exclude_prefixes and any(
+            filename == d or filename.startswith(p) for d, p in self._exclude_prefixes
+        ):
+            return False
         if self._source_prefixes:
-            return any(
-                filename == d or filename.startswith(p)
-                for d, p in self._source_prefixes
-            )
-        prefix = sys.prefix if sys.prefix.endswith("/") else sys.prefix + "/"
-        return "site-packages" not in filename and not filename.startswith(prefix)
+            return any(filename == d or filename.startswith(p) for d, p in self._source_prefixes)
+        return True
 
     def _trace(self, frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
         """Global trace function, called by Python on every *call* event.
@@ -232,6 +249,9 @@ class LineTracer:
         raw = frame.f_code.co_filename
         cached = self._scope_cache.get(raw)
         if cached is None:
+            if raw.startswith("<"):
+                self._scope_cache[raw] = (raw, False)
+                return None  # type: ignore[return-value]
             filename = str(Path(raw).resolve())
             in_scope = self._in_scope(filename)
             self._scope_cache[raw] = (filename, in_scope)

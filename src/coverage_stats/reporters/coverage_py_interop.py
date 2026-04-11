@@ -75,7 +75,8 @@ class CoveragePyInterop:
         Arcs whose destination cannot be determined are omitted rather than guessed.
         """
         try:
-            source = open(path, encoding="utf-8", errors="replace").read()
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                source = fh.read()
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             return []
@@ -121,7 +122,8 @@ class CoveragePyInterop:
             return []
 
         try:
-            source = open(path, encoding="utf-8", errors="replace").read()
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                source = fh.read()
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             return []
@@ -226,7 +228,15 @@ class CoveragePyInterop:
             cov.save = _orig_save  # type: ignore[method-assign]  # un-patch first (avoid recursion)
             try:
                 flush_pre_test_lines()
-                data = cov.get_data()
+                # On Python < 3.12 our LineTracer displaces coverage.py's C tracer,
+                # so coverage.py has collected nothing yet at this point.
+                # cov.get_data() calls _post_save_work() internally, which checks
+                # for an empty dataset and emits "No data was collected." before we
+                # have a chance to inject.  Suppress that specific warning here —
+                # it is a false positive because we are about to inject the data.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="No data was collected")
+                    data = cov.get_data()
                 if not hasattr(data, "has_arcs") or not hasattr(data, "add_lines") or not hasattr(data, "add_arcs"):
                     warnings.warn("coverage-stats: coverage.py CoverageData API changed — interop skipped")
                 elif data.has_arcs():
@@ -236,7 +246,12 @@ class CoveragePyInterop:
                 else:
                     data.add_lines(store.lines_by_file())
             except Exception as exc:
-                warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")
+                # Use catch_warnings to prevent filterwarnings="error" in the
+                # host test suite from turning this best-effort notice into an
+                # exception that surfaces as an INTERNALERROR.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("always")
+                    warnings.warn(f"coverage-stats: coverage.py interop failed (version mismatch?): {exc}")
             return _orig_save(*args, **kwargs)
 
         cov.save = _save_with_injection  # type: ignore[assignment]

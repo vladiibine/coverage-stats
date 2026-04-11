@@ -19,3 +19,4 @@ vwh_*
 coverage-stats-report/
 test-interop-stats/
 test-interop-cov/
+coverage-stats-extensive-examples/

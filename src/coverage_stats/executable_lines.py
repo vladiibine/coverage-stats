@@ -40,7 +40,8 @@ class ExecutableLinesAnalyzer:
         avoid re-reading and re-parsing the same file for branch analysis.
         """
         try:
-            source = open(path, encoding="utf-8", errors="replace").read()
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                source = fh.read()
             tree = ast.parse(source)
         except (OSError, SyntaxError):
             return None

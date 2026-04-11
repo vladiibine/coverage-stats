@@ -5,7 +5,7 @@ import inspect
 import sys
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import pytest
 
@@ -22,6 +22,38 @@ if TYPE_CHECKING:
     from coverage_stats.reporting_coordinator import ReportingCoordinator
 
 _DEFAULT_CUSTOMIZATION = "coverage_stats.plugin.CoverageStatsCustomization"
+
+# State created in pytest_load_initial_conftests and consumed in configure().
+# Using a list as a mutable container so inner functions can mutate it.
+_early_state: Optional[dict[str, Any]] = None
+
+
+class _MetaPathTracerEnsurer:
+    """sys.meta_path finder that reinstalls the line tracer before each module import.
+
+    On Python < 3.12, coverage.py's C tracer (installed via sys.settrace) displaces
+    our tracer whenever it reinstalls itself.  This finder is registered at
+    ``sys.meta_path[0]`` during ``pytest_load_initial_conftests`` so that, for
+    every subsequent module import (including conftest-time ``import httpx``),
+    we put our tracer back on top before the module code executes.
+
+    ``start()`` has an O(1) fast path when the tracer is already on top, so the
+    overhead per import is a single ``sys.gettrace()`` comparison in the common case.
+
+    Removed in ``TracingCoordinator.pytest_sessionstart`` once conftest loading is
+    complete and the ``pytest_collectstart`` reinstall mechanism takes over.
+    """
+
+    def __init__(self, tracer: Any) -> None:
+        self._tracer = tracer
+
+    def find_spec(self, fullname: str, path: Any, target: Any = None) -> None:
+        self._tracer.start()
+        return None
+
+    # Python 3.3 legacy hook — must be present to satisfy the MetaPathFinder ABC.
+    def find_module(self, fullname: str, path: Any = None) -> None:
+        return None
 
 
 class CoverageStatsCustomization:
@@ -62,6 +94,7 @@ class CoverageStatsCustomization:
         no_track_ids_ini = config.getini("coverage_stats_no_track_test_ids")
         disabled = bool(no_track_ids_opt) or str(no_track_ids_ini).lower() in ("true", "1", "yes")
         self.track_test_ids: bool = not disabled
+        self.track_test_folders: bool = bool(config.getoption("--coverage-stats-track-test-folders", default=False))
 
     def _load_class(self, dotted_path: str) -> type:
         module_path, sep, class_name = dotted_path.rpartition(".")
@@ -76,9 +109,9 @@ class CoverageStatsCustomization:
         cls: type[SessionStore] = self._load_class(self.store)
         return cls()
 
-    def get_profiler_context(self, source_dirs: list[str]) -> ProfilerContext:
+    def get_profiler_context(self, source_dirs: list[str], exclude_dirs: list[str] | None = None) -> ProfilerContext:
         cls: type[ProfilerContext] = self._load_class(self.profiler_context)
-        return cls(source_dirs=source_dirs, track_test_ids=self.track_test_ids)
+        return cls(source_dirs=source_dirs, exclude_dirs=exclude_dirs or [], track_test_ids=self.track_test_ids)
 
     def get_line_tracer(self, context: ProfilerContext, store: SessionStore) -> LineTracer:
         cls: type[LineTracer] = self._load_class(self.line_tracer)
@@ -114,12 +147,38 @@ class CoverageStatsCustomization:
         return cls(store, self, coverage_py_active=self.coverage_py_active)
 
     def get_source_dirs(self) -> list[str]:
-        """Resolve the source directories to trace, relative to the rootdir."""
+        """Resolve the source directories to trace, relative to the rootdir.
+
+        Falls back to the project rootdir when none of the configured source
+        directories exist on disk (e.g. projects that don't use a ``src/`` layout).
+        """
         raw_source = self.config.getini("coverage_stats_source")
         rootdir = Path(str(self.config.rootpath))
         candidate_dirs = [
             (rootdir / d).resolve() if not Path(d).is_absolute() else Path(d).resolve()
             for d in (raw_source.split() if isinstance(raw_source, str) else raw_source)
+            if d
+        ]
+        resolved = [str(p) for p in candidate_dirs if p.is_dir()]
+        if not resolved:
+            resolved = [str(rootdir.resolve())]
+        return resolved
+
+    def get_exclude_dirs(self) -> list[str]:
+        """Resolve the directories to exclude from tracing.
+
+        When ``--coverage-stats-track-test-folders`` is set, no directories are
+        excluded.  Otherwise the ``coverage_stats_exclude`` ini value (default
+        ``"tests"``) is resolved relative to the rootdir and any existing
+        directories are excluded.
+        """
+        if self.track_test_folders:
+            return []
+        raw_exclude = self.config.getini("coverage_stats_exclude")
+        rootdir = Path(str(self.config.rootpath))
+        candidate_dirs = [
+            (rootdir / d).resolve() if not Path(d).is_absolute() else Path(d).resolve()
+            for d in (raw_exclude.split() if isinstance(raw_exclude, str) else raw_exclude)
             if d
         ]
         return [str(p) for p in candidate_dirs if p.is_dir()]
@@ -157,10 +216,21 @@ class CoverageStatsCustomization:
             return
 
         # Worker or single-process: full tracing setup.
-        source_dirs = self.get_source_dirs()
-        ctx = self.get_profiler_context(source_dirs)
-        store = self.get_store()
-        tracer = self.get_line_tracer(ctx, store)
+        # Reuse objects created in pytest_load_initial_conftests if available.
+        # That early hook starts the tracer before conftest files are imported,
+        # capturing module-level pre-test lines from conftest-time imports.
+        global _early_state
+        if _early_state is not None:
+            store = _early_state["store"]
+            ctx = _early_state["ctx"]
+            tracer = _early_state["tracer"]
+            _early_state = None
+        else:
+            source_dirs = self.get_source_dirs()
+            exclude_dirs = self.get_exclude_dirs()
+            ctx = self.get_profiler_context(source_dirs, exclude_dirs)
+            store = self.get_store()
+            tracer = self.get_line_tracer(ctx, store)
 
         # Bypass pytest's assertion-rewrite .pyc cache during test collection.
         # pytest caches rewritten bytecode without including `enable_assertion_pass_hook`
@@ -311,6 +381,73 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Disable tracking of test node IDs per executed line (true/false, default: false).",
         default="false",
     )
+    parser.addoption(
+        "--coverage-stats-track-test-folders",
+        action="store_true",
+        default=False,
+        help="Include test folders in the coverage-stats report (excluded by default).",
+    )
+    parser.addini(
+        "coverage_stats_exclude",
+        help="Directories to exclude from tracing (space-separated, default: 'tests').",
+        default="tests",
+    )
+
+
+def pytest_load_initial_conftests(early_config: pytest.Config, parser: pytest.Parser, args: list[str]) -> None:
+    """Start the line tracer before conftest.py files are imported.
+
+    pytest_load_initial_conftests fires after all normal-tier hooks have run
+    (including coverage.py's tracer installation) but before pytest's own trylast
+    implementation loads conftest files.  We install the tracer here AND register
+    a sys.meta_path finder that reinstalls it before every subsequent module import
+    — this ensures we are on top of any coverage.py C tracer displacement when
+    conftest-time imports like ``import httpx`` execute.
+
+    The objects created here (store, ctx, tracer) are stored in ``_early_state``
+    and reused by ``CoverageStatsCustomization.configure()`` in ``pytest_configure``
+    so they are not recreated.
+    """
+    global _early_state
+    if "--coverage-stats" not in args:
+        return
+
+    try:
+        customization_path = (
+            early_config.getini("coverage_stats_customization")
+            or _DEFAULT_CUSTOMIZATION
+        )
+        customization_module, _, customization_cls_name = customization_path.rpartition(".")
+        if not customization_module:
+            return
+        customization_cls: type[CoverageStatsCustomization] = getattr(
+            importlib.import_module(customization_module), customization_cls_name
+        )
+        customization = customization_cls(early_config)
+
+        if customization.is_xdist_controller():
+            return
+
+        source_dirs = customization.get_source_dirs()
+        exclude_dirs = customization.get_exclude_dirs()
+        store = customization.get_store()
+        ctx = customization.get_profiler_context(source_dirs, exclude_dirs)
+        tracer = customization.get_line_tracer(ctx, store)
+        tracer.start()
+
+        # Register a meta_path finder so we reinstall our tracer before each
+        # subsequent module import.  On Python < 3.12, coverage.py's C tracer
+        # displaces us; the finder guarantees we are on top when any module
+        # (including conftest imports) is executed.
+        ensurer = _MetaPathTracerEnsurer(tracer)
+        sys.meta_path.insert(0, ensurer)
+        ctx.meta_path_ensurer = ensurer
+
+        _early_state = {"store": store, "ctx": ctx, "tracer": tracer}
+    except Exception:
+        # If early setup fails for any reason, fall back to the normal path in
+        # pytest_configure/configure() which starts the tracer in pytest_sessionstart.
+        _early_state = None
 
 
 def pytest_configure(config: pytest.Config) -> None:

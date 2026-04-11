@@ -43,15 +43,27 @@ class TracingCoordinator:
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        """First tracer install — captures lines executed during collection.
+        """Remove the early meta_path ensurer and reinstall the tracer.
+
+        By the time pytest_sessionstart fires, all conftest files have been loaded
+        (that happens in pytest_load_initial_conftests).  We no longer need the
+        sys.meta_path ensurer — the pytest_collectstart reinstall mechanism takes
+        over for test-module imports.  We remove it here to avoid the per-import
+        overhead for the rest of the session.
 
         trylast=True ensures coverage.py has already installed its own tracer
-        before we install on top of it.  Lines executed during collection
-        (def/class statements, module-level code) fire line events here and
-        are recorded into ProfilerContext.pre_test_lines.
+        before we install on top of it.
         """
         if not self._enabled:
             return
+        # Conftest loading is done — remove the meta_path ensurer.
+        ensurer = self._ctx.meta_path_ensurer
+        if ensurer is not None:
+            try:
+                sys.meta_path.remove(ensurer)
+            except ValueError:
+                pass
+            self._ctx.meta_path_ensurer = None
         if self._tracer is not None:
             self._tracer.start()
 
@@ -169,7 +181,7 @@ class TracingCoordinator:
         to run tests is itself a deliberate act, so ``def`` statements and other
         module-level code should not penalise deliberate coverage.
         """
-        for key in ctx.pre_test_lines:
+        for key in list(ctx.pre_test_lines):  # snapshot: tracer may still be active
             if key not in store:
                 ld = store.get_or_create(key)
                 ld.incidental_executions = 1
