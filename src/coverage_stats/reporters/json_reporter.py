@@ -38,6 +38,9 @@ def write_json(report: CoverageReport, output_dir: Path) -> None:
             "lines": lines_dict,
             "summary": {
                 "total_stmts": total_stmts,
+                "total_covered": fr.summary.total_covered,
+                "arcs_total": fr.summary.arcs_total,
+                "arcs_covered": fr.summary.arcs_covered,
                 "total_coverage_pct": fr.summary.total_pct,
                 "incidental_coverage_pct": fr.summary.incidental_pct,
                 "deliberate_coverage_pct": fr.summary.deliberate_pct,

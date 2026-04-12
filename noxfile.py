@@ -25,14 +25,14 @@ def tests(session: nox.Session) -> None:
 def mypy(session: nox.Session) -> None:
     """Type-check with mypy."""
     session.install(".[dev]")
-    session.run("mypy", "src/")
+    session.run("mypy", "src/", "scripts/")
 
 
 @nox.session
 def lint(session: nox.Session) -> None:
     """Lint with ruff."""
     session.install("ruff")
-    session.run("ruff", "check", "src/", "tests/")
+    session.run("ruff", "check", "src/", "tests/", "scripts/")
 
 
 @nox.session
