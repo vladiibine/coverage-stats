@@ -60,14 +60,16 @@ class DefaultReportBuilder:
                 source_map = {i + 1: line for i, line in enumerate(file_analysis.source_lines)}
                 all_linenos: list[int] = list(range(1, len(file_analysis.source_lines) + 1))
                 executable = file_analysis.executable_lines
+                excluded = file_analysis.excluded_lines
             else:
                 all_linenos = sorted(line_data.keys())
                 source_map = {}
                 executable = set()
+                excluded = set()
 
             total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(line_data)
 
-            branch_analysis = self._analyze_branches(file_analysis, line_data)
+            branch_analysis = self._analyze_branches(file_analysis, line_data, excluded)
 
             total_covered = sum(
                 1 for ln in executable
@@ -121,6 +123,7 @@ class DefaultReportBuilder:
                     source_text=source_text,
                     executable=lineno in executable,
                     partial=lineno in branch_analysis.partial,
+                    excluded=lineno in excluded,
                     incidental_executions=line_entry.incidental_executions if line_entry else 0,
                     deliberate_executions=line_entry.deliberate_executions if line_entry else 0,
                     incidental_asserts=line_entry.incidental_asserts if line_entry else 0,
@@ -150,7 +153,7 @@ class DefaultReportBuilder:
             node.files.append(s)
         return root
 
-    def _analyze_branches(self, file_analysis: FileAnalysis | None, lines: dict[int, LineData]) -> _BranchAnalysis:
+    def _analyze_branches(self, file_analysis: FileAnalysis | None, lines: dict[int, LineData], excluded: set[int] | None = None) -> _BranchAnalysis:
         """Analyze branch coverage, returning partial line numbers and arc counts.
 
         Arc counting mirrors coverage.py's branch-inclusive formula so that:
@@ -170,19 +173,98 @@ class DefaultReportBuilder:
         if file_analysis is None:
             return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0, arcs_deliberate=0, arcs_incidental=0)
 
+        _excluded = excluded or set()
         partial: set[int] = set()
-        arcs_total = 0
         arcs_covered = 0
         arcs_deliberate = 0
         arcs_incidental = 0
 
-        for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
-            arcs_total += bd.arc_count
-            arcs_covered += (1 if bd.true_taken else 0) + (1 if bd.false_taken else 0)
-            arcs_deliberate += (1 if bd.deliberate_true else 0) + (1 if bd.deliberate_false else 0)
-            arcs_incidental += (1 if bd.incidental_true else 0) + (1 if bd.incidental_false else 0)
-            if bd.is_partial:
-                partial.add(bd.node_line)
+        if file_analysis.static_arcs is not None:
+            # Use coverage.py's arc data for the denominator — this matches
+            # coverage.py's branch-coverage denominator exactly regardless of
+            # Python version or compiler optimisations.
+            arcs_total = len(file_analysis.static_arcs)
+            # Source lines whose "exit" (negative-target) arc is in static_arcs.
+            # BranchWalker returns false_target=None when the false branch exits
+            # the current scope; we match those to coverage.py's negative arcs.
+            exit_sources = {src for src, tgt in file_analysis.static_arcs if tgt < 0}
+
+            for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
+                if bd.node_line in _excluded:
+                    continue
+                # Only count arcs that coverage.py also counts.  This filters
+                # out while-True headers and any other construct the static arc
+                # set doesn't include.
+                true_in_static = (bd.node_line, bd.true_target) in file_analysis.static_arcs
+                # BranchWalker uses a positive sibling line for the false target
+                # when one exists, and None when the false branch exits the scope.
+                # The latter corresponds to a negative arc in static_arcs.
+                false_in_static = (
+                    bd.false_target is not None
+                    and (bd.node_line, bd.false_target) in file_analysis.static_arcs
+                ) or (
+                    bd.false_target is None
+                    and bd.node_line in exit_sources
+                )
+                if not true_in_static and not false_in_static:
+                    continue
+
+                if true_in_static:
+                    arcs_covered += (1 if bd.true_taken else 0)
+                    arcs_deliberate += (1 if bd.deliberate_true else 0)
+                    arcs_incidental += (1 if bd.incidental_true else 0)
+                if false_in_static:
+                    arcs_covered += (1 if bd.false_taken else 0)
+                    arcs_deliberate += (1 if bd.deliberate_false else 0)
+                    arcs_incidental += (1 if bd.incidental_false else 0)
+
+                # bd.is_partial already encodes "was reached and not fully covered"
+                # correctly for every node type (if/for/while and match cases).
+                # We only add to partial when at least one arc for this node is
+                # tracked by the static arc set.
+                if bd.is_partial and (true_in_static or false_in_static):
+                    partial.add(bd.node_line)
+        else:
+            # Fallback when coverage.py is not available: use BranchWalker's
+            # own arc counting.
+            arcs_total = 0
+            for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
+                if bd.node_line in _excluded:
+                    continue
+
+                # Arcs whose target is an excluded line don't count.
+                # A branch with only one non-excluded target is not a real
+                # decision point — skip it entirely (mirrors coverage.py's
+                # behaviour of counting 0 arcs for such branches).
+                true_excluded = bd.true_target in _excluded
+                false_excluded = bd.false_target is not None and bd.false_target in _excluded
+                effective_arc_count = bd.arc_count - (1 if true_excluded else 0) - (1 if false_excluded else 0)
+                if effective_arc_count < 2:
+                    continue
+
+                arcs_total += effective_arc_count
+                if not true_excluded:
+                    arcs_covered += (1 if bd.true_taken else 0)
+                    arcs_deliberate += (1 if bd.deliberate_true else 0)
+                    arcs_incidental += (1 if bd.incidental_true else 0)
+                if not false_excluded:
+                    arcs_covered += (1 if bd.false_taken else 0)
+                    arcs_deliberate += (1 if bd.deliberate_false else 0)
+                    arcs_incidental += (1 if bd.incidental_false else 0)
+
+                # Recompute is_partial considering only non-excluded arcs.
+                if bd.is_partial:
+                    if false_excluded:
+                        is_partial = not bd.true_taken
+                    elif true_excluded:
+                        is_partial = not bd.false_taken
+                    else:
+                        is_partial = True
+                else:
+                    is_partial = False
+
+                if is_partial:
+                    partial.add(bd.node_line)
 
         return _BranchAnalysis(
             partial=partial,

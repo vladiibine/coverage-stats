@@ -42,6 +42,26 @@ def partially_covered(a):
 
 def not_covered(a, b):
     return a * b
+
+
+def poll_until_done(items):
+    # while True: must not appear as a branch in either tool's report.
+    # The `if not items:` check is NOT the last statement in the while body,
+    # so BranchWalker can correctly resolve its false target (next sibling)
+    # rather than falling back to the post-loop line.
+    while True:
+        if not items:
+            break
+        item = items.pop(0)
+    return item
+
+
+async def async_consume(aiter):
+    # async for must appear as a 2-arc branch in both tools' reports
+    results = []
+    async for item in aiter:
+        results.append(item)
+    return results
 """,
         encoding="utf-8",
     )
@@ -50,7 +70,7 @@ def not_covered(a, b):
         test_mylib="""\
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "src"))
-from mylib import covered, partially_covered
+from mylib import covered, partially_covered, poll_until_done
 
 def test_covered():
     assert covered(1, 2) == 3
@@ -58,6 +78,10 @@ def test_covered():
 
 def test_partially_covered_true_branch():
     assert partially_covered(5) == 5
+
+def test_while_true_loop():
+    # Exercises while True: — must not inflate branch arc counts
+    assert poll_until_done(["a", "b", "done"]) == "done"
 """
     )
 
@@ -78,7 +102,7 @@ coverage_stats_source = src
         "-p", "no:xdist",
         "-v",
     )
-    result.assert_outcomes(passed=2)
+    result.assert_outcomes(passed=3)
 
     # --- coverage-stats JSON ---
     stats_path = pytester.path / "test-interop-stats" / "coverage-stats.json"

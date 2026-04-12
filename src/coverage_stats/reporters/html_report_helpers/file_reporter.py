@@ -172,10 +172,29 @@ class FilePageReporter(HtmlReporterMixin):
         )
 
     def render_line(self, lineno: int, source_text: str, ld: LineData | None, executable: bool,
-                    partial: bool = False, _ranges: dict[str, float] | None = None) -> str:
+                    partial: bool = False, excluded: bool = False,
+                    _ranges: dict[str, float] | None = None) -> str:
         escaped = _html.escape(source_text)
         branch_marker = '<td class="branch-warn" title="not all branches taken">⚑</td>' if partial else "<td></td>"
         fc = self.FILE_COLUMNS
+
+        if excluded:
+            c = self._c
+            return (
+                f'<tr class="excluded">'
+                f'<td>{lineno}</td>'
+                f'<td title="excluded by pragma: no cover">–</td>'
+                f'<td><pre style="margin:0">{escaped}</pre></td>'
+                f'<td data-col="inc-exec"{c("inc-exec", fc)}></td>'
+                f'<td data-col="del-exec"{c("del-exec", fc)}></td>'
+                f'<td data-col="inc-asserts"{c("inc-asserts", fc)}></td>'
+                f'<td data-col="del-asserts"{c("del-asserts", fc)}></td>'
+                f'<td data-col="inc-tests"{c("inc-tests", fc)}></td>'
+                f'<td data-col="del-tests"{c("del-tests", fc)}></td>'
+                f'<td data-col="inc-test-ids"{c("inc-test-ids", fc)}></td>'
+                f'<td data-col="del-test-ids"{c("del-test-ids", fc)}></td>'
+                f'</tr>'
+            )
 
         if not executable:
             c = self._c
@@ -319,7 +338,7 @@ class FilePageReporter(HtmlReporterMixin):
                 )
             rows.append(self.render_line(
                 lr.lineno, lr.source_text, ld, lr.executable,
-                partial=lr.partial, _ranges=file_ranges,
+                partial=lr.partial, excluded=lr.excluded, _ranges=file_ranges,
             ))
 
         out_path.write_text(

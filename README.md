@@ -177,5 +177,5 @@ mypy is configured in `pyproject.toml` under `[tool.mypy]` with strict mode enab
 uv run python -m build
 
 # 2. upload
-uv run twine upload dist/*
+uv run twine upload --skip-existing dist/*
 ```

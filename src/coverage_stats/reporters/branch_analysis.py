@@ -70,7 +70,12 @@ class BranchWalker:
                 parent_map[id(child)] = node
 
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.If, ast.While, ast.For)):
+            if not isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor)):
+                continue
+            # while True: (or any constant-truthy condition) never generates a
+            # conditional jump — coverage.py doesn't count it as a branch in
+            # any Python version.
+            if isinstance(node, ast.While) and isinstance(node.test, ast.Constant) and node.test.value:
                 continue
             if_count = _count(node.lineno)
             body_lineno = node.body[0].lineno

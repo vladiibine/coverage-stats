@@ -196,6 +196,68 @@ def test_while_both_branches():
     assert bd.false_target == 3
 
 
+@covers(BranchWalker.walk_branches)
+def test_while_true_yields_no_descriptor():
+    """`while True:` never generates a conditional branch in any Python version."""
+    src = """\
+        while True:
+            work()
+            break
+    """
+    bds = _walk(src, {1: _ld(ie=5), 2: _ld(ie=5), 3: _ld(ie=5)})
+    assert bds == []
+
+
+@covers(BranchWalker.walk_branches)
+def test_while_truthy_constant_yields_no_descriptor():
+    """Other constant-truthy conditions (while 1:) are also skipped."""
+    src = """\
+        while 1:
+            work()
+            break
+    """
+    bds = _walk(src, {1: _ld(ie=5), 2: _ld(ie=5), 3: _ld(ie=5)})
+    assert bds == []
+
+
+@covers(BranchWalker.walk_branches)
+def test_async_for_yields_descriptor():
+    """`async for` is treated as a branch just like `for`."""
+    src = """\
+        async def f():
+            async for item in aiter():
+                process(item)
+            done = True
+    """
+    bds = _walk(src, {2: _ld(ie=5), 3: _ld(ie=4)})
+    assert len(bds) == 1
+    bd = bds[0]
+    assert bd.node_line == 2
+    assert bd.arc_count == 2
+    assert bd.true_target == 3    # body
+    assert bd.false_target == 4   # done = True (next sibling)
+    assert bd.true_taken is True
+    assert bd.false_taken is True  # loop_count (5) > body_count (4)
+
+
+@covers(BranchWalker.walk_branches)
+def test_async_for_body_only_taken_is_partial():
+    """`async for` where iterator always had items → false arc not taken."""
+    src = """\
+        async def f():
+            async for item in aiter():
+                process(item)
+            done = True
+    """
+    # loop_count == body_count → false_taken = False
+    bds = _walk(src, {2: _ld(ie=5), 3: _ld(ie=5)})
+    assert len(bds) == 1
+    bd = bds[0]
+    assert bd.true_taken is True
+    assert bd.false_taken is False
+    assert bd.is_partial is True
+
+
 # ---------------------------------------------------------------------------
 # Deliberate / incidental fields
 # ---------------------------------------------------------------------------

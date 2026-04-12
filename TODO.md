@@ -10,6 +10,7 @@ DOCS:
 
 CORE
   * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
+  * are there parts of coverage.py I can reuse? PythonParser?
   * code comment to turn off counting of inc/deliberate asserts/test/executions
   * [v] instead of "lines", we need "statements", like coverage does it
   * [v] add "number of incidental/deliberate tests that ran on this line of code"  
@@ -23,8 +24,9 @@ CORE
     >>> wont-do, hypothesis is false
 
 REPORTING:
-  * [v] ordering or html columns
+  * in the help popup, show the definition of all calculations. On the individual page reports, alongside the definitions, also show the numbers (so the user can easily see what got calculated exactly)
   * (optional) resizing of columns
+  * [v] ordering or html columns
   * [v] See the exact tests that covered (incidentally & deliberately) every line
     * add the test cols on the index page
     * index should show # inc/del tests

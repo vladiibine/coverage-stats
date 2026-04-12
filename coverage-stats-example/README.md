@@ -7,7 +7,9 @@ alongside standard `coverage.py`, so you can compare their HTML outputs side by 
 
 From this directory, install dependencies with `uv`:
 
+## Projects with a `pyproject.toml`
 ```bash
+
 # this will create a .venv and install this project's dependencies inside
 uv sync --extra dev
 
@@ -22,11 +24,31 @@ uv venv --python 3.10 .venv-3.10
 This installs `pytest`, `coverage`, `pytest-cov`, `pytest-xdist`, and the
 `coverage-stats` plugin (sourced from the parent repo via the workspace).
 
+## Projects WITHOUT `pyptoject.toml`
+```bash
+# ...or use any python version
+uv venv --python 3.10 .venv-3.10
+
+.venv-3.10/bin/python -m ensurepip --upgrade
+
+.venv-3.10/bin/python -m pip install -r requirements.txt
+.venv-3.10/bin/python -m pip install pytest coverage pytest-cov pytest-xdist
+
+.venv-3.10/bin/python -m pip install -e ../..
+
+```
+
 ## Running coverage-stats
 
 The `coverage-stats` plugin is activated with `--coverage-stats` and produces its own
 HTML report in `coverage-stats-report/`:
 
+### Running coverage-stats and coverage.py together WITHOUT `uv`
+```bash
+rm -rf coverage-stats-report html-cov; time ./.venv/bin/pytest tests --coverage-stats --coverage-stats-format html --coverage-stats-precision 6 -k test_load_ssl_config_verify_existing_file --cov --cov-report=html:html-cov --cov-branch; date
+```
+
+### Running covrage-stats and coverage.py together with `uv`
 ```bash
 # use the default env
 uv run pytest --coverage-stats --coverage-stats-precision 6 --coverage-stats-format html --cov=src --cov-branch --cov-report=html:html-cov

@@ -686,7 +686,7 @@ def test_subclass_render_line_override_is_called(tmp_path):
     from coverage_stats.reporters.html_report_helpers.file_reporter import FilePageReporter
 
     class MarkedFileReporter(FilePageReporter):
-        def render_line(self, lineno, source_text, ld, executable, partial=False, _ranges=None) -> str:
+        def render_line(self, lineno, source_text, ld, executable, partial=False, excluded=False, _ranges=None) -> str:
             return f'<tr class="custom-row"><td>{lineno}</td></tr>'
 
     class MarkedReporter(HtmlReporter):

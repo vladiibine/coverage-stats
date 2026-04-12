@@ -355,8 +355,9 @@ def test_analyze_branches_match_non_wildcard_last_case(tmp_path):
         case2_line + 1: _ld(2),
     }
     result = DefaultReportBuilder()._analyze_branches(_analyzer.analyze(path), lines)
-    # case 1 (non-last): 2 arcs; case 2 (non-wildcard last): 1 arc → total=3
-    assert result.arcs_total == 3
+    # case 1 (non-last): 2 arcs; case 2 (non-wildcard last): 2 arcs (body + exit)
+    # → total=4, matching coverage.py's arc count for this construct.
+    assert result.arcs_total == 4
 
 
 # ---------------------------------------------------------------------------
@@ -466,3 +467,138 @@ def test_analyze_branches_match_arc_deliberate(tmp_path):
     # case1 next-case arc: case2_line reached incidentally → incidental
     assert result.arcs_deliberate == 1
     assert result.arcs_incidental == 2
+
+
+# ---------------------------------------------------------------------------
+# _analyze_branches — while True: does not inflate arc total
+# ---------------------------------------------------------------------------
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+def test_while_true_not_counted_as_branch(tmp_path):
+    """`while True:` must not add arcs to the total — it has no conditional jump."""
+    path = _write(tmp_path, """\
+        def f():
+            while True:
+                work()
+                break
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    while_line = next(i + 1 for i, ln in enumerate(src) if "while True" in ln)
+    body_line = while_line + 1
+
+    lines = {while_line: _ld(5), body_line: _ld(5)}
+    result = DefaultReportBuilder()._analyze_branches(_analyzer.analyze(path), lines)
+    assert result.arcs_total == 0, (
+        f"`while True:` should not be counted as a branch; got arcs_total={result.arcs_total}"
+    )
+    assert while_line not in result.partial
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+def test_while_true_does_not_cause_partial(tmp_path):
+    """`while True:` that only executes its body is not partial."""
+    path = _write(tmp_path, """\
+        def f():
+            if cond:
+                while True:
+                    work()
+                    break
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if cond" in ln)
+    while_line = next(i + 1 for i, ln in enumerate(src) if "while True" in ln)
+    body_line = while_line + 1
+
+    # Only the true branch of the if was taken (while True body always ran)
+    lines = {if_line: _ld(5), while_line: _ld(5), body_line: _ld(5)}
+    result = DefaultReportBuilder()._analyze_branches(_analyzer.analyze(path), lines)
+    assert while_line not in result.partial
+
+
+# ---------------------------------------------------------------------------
+# _analyze_branches — async for arc counting
+# ---------------------------------------------------------------------------
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+def test_async_for_counts_as_two_arcs(tmp_path):
+    """`async for` contributes 2 arcs (body taken / loop exhausted)."""
+    path = _write(tmp_path, """\
+        async def f():
+            async for item in aiter():
+                process(item)
+            done = True
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    for_line = next(i + 1 for i, ln in enumerate(src) if "async for" in ln)
+    body_line = for_line + 1
+    done_line = next(i + 1 for i, ln in enumerate(src) if "done" in ln)
+
+    lines = {for_line: _ld(5), body_line: _ld(4), done_line: _ld(1)}
+    result = DefaultReportBuilder()._analyze_branches(_analyzer.analyze(path), lines)
+    assert result.arcs_total == 2
+    assert result.arcs_covered == 2   # both body and exhausted arcs taken
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+def test_async_for_body_only_is_partial(tmp_path):
+    """`async for` where iterator always had items → loop-exhausted arc not taken → partial."""
+    path = _write(tmp_path, """\
+        async def f():
+            async for item in aiter():
+                process(item)
+            done = True
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    for_line = next(i + 1 for i, ln in enumerate(src) if "async for" in ln)
+    body_line = for_line + 1
+
+    # done_line never reached — loop never exhausted
+    lines = {for_line: _ld(5), body_line: _ld(5)}
+    result = DefaultReportBuilder()._analyze_branches(_analyzer.analyze(path), lines)
+    assert result.arcs_total == 2
+    assert for_line in result.partial
+
+
+# ---------------------------------------------------------------------------
+# _analyze_branches — single-excluded-target branches (fallback path, Fix 3)
+# ---------------------------------------------------------------------------
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+def test_branch_with_one_excluded_target_not_counted(tmp_path):
+    """A branch whose true target is excluded contributes 0 arcs, not 1.
+
+    When coverage.py is available this is handled by static_arcs (which never
+    includes branches with <2 non-excluded countable targets).  When coverage.py
+    is NOT available the fallback path must also skip such branches (fix 3:
+    effective_arc_count < 2 → skip).
+
+    The pragma is placed on the body statement, not the ``if`` line itself, so
+    the ``if`` node is NOT excluded — only its true-branch target is.
+    We force the fallback path by setting static_arcs=None on the FileAnalysis.
+    """
+    path = _write(tmp_path, """\
+        import sys
+        if sys.version_info >= (3, 99):
+            unreachable()  # pragma: no cover
+        after = True
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if sys" in ln)
+    after_line = next(i + 1 for i, ln in enumerate(src) if "after" in ln)
+
+    fa = _analyzer.analyze(path)
+    assert fa is not None
+    assert if_line not in fa.excluded_lines, "if line itself must not be excluded"
+
+    # Force the fallback path regardless of whether coverage.py is installed.
+    fa.static_arcs = None
+
+    lines = {if_line: _ld(5), after_line: _ld(5)}
+    # Pass excluded_lines explicitly — _analyze_branches needs them for the fallback path.
+    result = DefaultReportBuilder()._analyze_branches(fa, lines, excluded=fa.excluded_lines)
+    # True target is excluded → only 1 effective arc → branch skipped entirely.
+    assert result.arcs_total == 0
+    assert if_line not in result.partial

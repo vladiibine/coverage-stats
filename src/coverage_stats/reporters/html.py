@@ -83,10 +83,10 @@ class HtmlReporter:
         )
 
     def render_line(self, lineno: int, source_text: str, ld: LineData | None,
-                    executable: bool, partial: bool = False,
+                    executable: bool, partial: bool = False, excluded: bool = False,
                     _ranges: dict[str, float] | None = None) -> str:
         return self.get_file_reporter().render_line(
-            lineno, source_text, ld, executable, partial, _ranges
+            lineno, source_text, ld, executable, partial, excluded, _ranges
         )
 
     def _render_tree_rows(
