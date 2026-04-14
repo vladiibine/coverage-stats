@@ -12,6 +12,13 @@ _SLOTS_KW: dict[str, bool] = {"slots": True} if sys.version_info >= (3, 10) else
 
 
 @dataclass(**_SLOTS_KW)
+class ArcData:
+    """Execution counts for a single (from_line, to_line) arc transition."""
+    incidental_executions: int = 0
+    deliberate_executions: int = 0
+
+
+@dataclass(**_SLOTS_KW)
 class LineData:
     incidental_executions: int = 0
     deliberate_executions: int = 0
@@ -31,9 +38,17 @@ class SessionStore:
         # __contains__ / `in` checks do NOT trigger __missing__, so `key not in store`
         # remains safe.
         self._data: defaultdict[tuple[str, int], LineData] = defaultdict(LineData)
+        self._arc_data: defaultdict[tuple[str, int, int], ArcData] = defaultdict(ArcData)
 
     def get_or_create(self, key: tuple[str, int]) -> LineData:
         return self._data[key]
+
+    def get_or_create_arc(self, key: tuple[str, int, int]) -> ArcData:
+        return self._arc_data[key]
+
+    def has_arc_data(self) -> bool:
+        """Return True if the store contains any arc data."""
+        return len(self._arc_data) > 0
 
     def items(self) -> Iterator[tuple[tuple[str, int], LineData]]:
         """Iterate over all (path, lineno) → LineData entries."""
@@ -49,6 +64,14 @@ class SessionStore:
             result.setdefault(path, {})[lineno] = ld
         return result
 
+    def arcs_for_file(self, path: str) -> dict[tuple[int, int], ArcData]:
+        """Return observed arc data for a single file as {(from_line, to_line): ArcData}."""
+        result: dict[tuple[int, int], ArcData] = {}
+        for (p, from_line, to_line), ad in self._arc_data.items():
+            if p == path:
+                result[(from_line, to_line)] = ad
+        return result
+
     def merge(self, other: SessionStore) -> None:
         for key, other_ld in other._data.items():
             ld = self.get_or_create(key)
@@ -60,17 +83,22 @@ class SessionStore:
             ld.deliberate_tests += other_ld.deliberate_tests
             ld.incidental_test_ids |= other_ld.incidental_test_ids
             ld.deliberate_test_ids |= other_ld.deliberate_test_ids
+        for arc_key, other_ad in other._arc_data.items():
+            ad = self.get_or_create_arc(arc_key)
+            ad.incidental_executions += other_ad.incidental_executions
+            ad.deliberate_executions += other_ad.deliberate_executions
 
-    def to_dict(self) -> dict[str, list[int | list[str]]]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise the store to a JSON-safe dict.
 
-        Format: ``{path\\x00lineno: [inc_exec, del_exec, inc_assert, del_assert,
-        inc_tests, del_tests, [inc_ids...], [del_ids...]]}``
+        Format: ``{"lines": {path\\x00lineno: [inc_exec, del_exec, ...]},
+        "arcs": {path\\x00from\\x00to: [inc_exec, del_exec]}}``
 
-        The last two elements (ID lists) are omitted when both are empty, so the
-        format is backward-compatible with older readers that only expect 6 ints.
+        Backward compatibility: old callers that received a flat dict of line
+        data will see the same structure under the ``"lines"`` key.  Old JSON
+        files without an ``"arcs"`` key load cleanly (arcs default to empty).
         """
-        result: dict[str, list[int | list[str]]] = {}
+        lines: dict[str, list[int | list[str]]] = {}
         for (path, lineno), ld in self._data.items():
             entry: list[int | list[str]] = [
                 ld.incidental_executions,
@@ -83,8 +111,14 @@ class SessionStore:
             if ld.incidental_test_ids or ld.deliberate_test_ids:
                 entry.append(sorted(ld.incidental_test_ids))
                 entry.append(sorted(ld.deliberate_test_ids))
-            result[f"{path}\x00{lineno}"] = entry
-        return result
+            lines[f"{path}\x00{lineno}"] = entry
+        arcs: dict[str, list[int]] = {}
+        for (path, from_line, to_line), ad in self._arc_data.items():
+            arcs[f"{path}\x00{from_line}\x00{to_line}"] = [
+                ad.incidental_executions,
+                ad.deliberate_executions,
+            ]
+        return {"lines": lines, "arcs": arcs}
 
     def lines_by_file(self) -> dict[str, list[int]]:
         """Return executed line numbers grouped by file path.
@@ -102,11 +136,21 @@ class SessionStore:
     def from_dict(cls, data: dict[str, Any]) -> SessionStore:
         """Deserialise a store from the dict produced by ``to_dict()``.
 
-        Backward-compatible: values with only 6 elements (old format without IDs)
-        deserialise cleanly with empty ID sets.
+        Backward-compatible: accepts both the new format (``{"lines": ..., "arcs": ...}``)
+        and the old flat format (``{path\\x00lineno: [...]}``) without an ``"arcs"`` key.
+        Values with only 6 elements (old format without IDs) deserialise cleanly
+        with empty ID sets.
         """
         store = cls()
-        for raw_key, values in data.items():
+        # New format: {"lines": {...}, "arcs": {...}}
+        # Old format: flat dict with path\x00lineno keys
+        if "lines" in data and isinstance(data["lines"], dict):
+            line_data = data["lines"]
+            arc_data = data.get("arcs", {})
+        else:
+            line_data = data
+            arc_data = {}
+        for raw_key, values in line_data.items():
             path, lineno_str = raw_key.split("\x00", 1)
             key = (path, int(lineno_str))
             ld = store.get_or_create(key)
@@ -122,4 +166,12 @@ class SessionStore:
             ld.deliberate_test_ids = (
                 set(values[7]) if len(values) > 7 and isinstance(values[7], list) else set()
             )
+        for raw_key, values in arc_data.items():
+            parts = raw_key.split("\x00")
+            path = parts[0]
+            from_line = int(parts[1])
+            to_line = int(parts[2])
+            ad = store.get_or_create_arc((path, from_line, to_line))
+            ad.incidental_executions = values[0]
+            ad.deliberate_executions = values[1]
         return store

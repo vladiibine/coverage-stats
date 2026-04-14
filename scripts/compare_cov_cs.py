@@ -2,7 +2,7 @@
 r"""Compare coverage.py and coverage-stats on a project.
 
 Usage:
-    python scripts/compare_coverage.py <project_dir> <venv_dir> [options]
+    python scripts/compare_cov_cs.py <project_dir> <venv_dir> [options]
 
 Arguments:
     project_dir   Root of the project to measure (must contain a pytest-runnable
@@ -31,18 +31,18 @@ Examples — httpx (coverage-stats-extensive-examples/httpx):
   and .venv-3.12 (Python 3.12).  Run from the coverage-stats repo root:
 
   # Python 3.9 venv — full test suite
-  python scripts/compare_coverage.py coverage-stats-extensive-examples/httpx \
+  python scripts/compare_cov_cs.py coverage-stats-extensive-examples/httpx \
     coverage-stats-extensive-examples/httpx/.venv \
     --source httpx \
-    --tests tests
-    --output coverage-stats-extensive-examples/coverage-comparison-py39.md
+    --tests tests \
+    --output scripts/output/coverage-comparison-py39.md
 
   # Python 3.12 venv — full test suite
-  python scripts/compare_coverage.py \
+  python scripts/compare_cov_cs.py \
       coverage-stats-extensive-examples/httpx \
       coverage-stats-extensive-examples/httpx/.venv-3.12 \
       --source httpx --tests tests \
-      --output coverage-stats-extensive-examples/coverage-comparison-py312.md
+      --output scripts/output/coverage-comparison-py312.md
 
   To run a single test file instead of the full suite (faster), replace
   ``--tests tests`` with e.g. ``--tests tests/test_auth.py``.

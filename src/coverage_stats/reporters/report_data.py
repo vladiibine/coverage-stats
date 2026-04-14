@@ -15,7 +15,7 @@ from coverage_stats.reporters.models import (
     FolderNode,
     LineReport,
 )
-from coverage_stats.store import LineData, SessionStore
+from coverage_stats.store import ArcData, LineData, SessionStore
 
 
 class ReportBuilder(Protocol):
@@ -69,17 +69,26 @@ class DefaultReportBuilder:
 
             total_stmts = len(executable) if (executable or Path(abs_path).exists()) else len(line_data)
 
-            branch_analysis = self._analyze_branches(file_analysis, line_data, excluded)
+            branch_analysis = self._analyze_branches(file_analysis, line_data, excluded, store=store, abs_path=abs_path)
+
+            # Build statement span map for multi-line statement consolidation.
+            # If any line within a multi-line statement's span was executed,
+            # the statement (its start line) is considered covered.  This fixes
+            # the tracing gap where Python's tracer doesn't fire line events
+            # for every line of a multi-line statement (e.g. `return (\n  ...)`).
+            stmt_spans = self._build_stmt_spans(file_analysis) if file_analysis is not None else {}
 
             total_covered = sum(
                 1 for ln in executable
-                if ln in line_data and (line_data[ln].deliberate_executions > 0 or line_data[ln].incidental_executions > 0)
+                if self._is_stmt_covered(ln, line_data, stmt_spans)
             )
             deliberate_covered = sum(
-                1 for ln in executable if ln in line_data and line_data[ln].deliberate_executions > 0
+                1 for ln in executable
+                if self._is_stmt_covered(ln, line_data, stmt_spans, deliberate=True)
             )
             incidental_covered = sum(
-                1 for ln in executable if ln in line_data and line_data[ln].incidental_executions > 0
+                1 for ln in executable
+                if self._is_stmt_covered(ln, line_data, stmt_spans, incidental=True)
             )
             incidental_asserts = sum(ld.incidental_asserts for ld in line_data.values())
             deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
@@ -153,19 +162,24 @@ class DefaultReportBuilder:
             node.files.append(s)
         return root
 
-    def _analyze_branches(self, file_analysis: FileAnalysis | None, lines: dict[int, LineData], excluded: set[int] | None = None) -> _BranchAnalysis:
+    def _analyze_branches(
+        self,
+        file_analysis: FileAnalysis | None,
+        lines: dict[int, LineData],
+        excluded: set[int] | None = None,
+        *,
+        store: SessionStore | None = None,
+        abs_path: str | None = None,
+    ) -> _BranchAnalysis:
         """Analyze branch coverage, returning partial line numbers and arc counts.
 
-        Arc counting mirrors coverage.py's branch-inclusive formula so that:
-            (stmts_covered + arcs_covered) / (stmts_total + arcs_total)
-        matches coverage.py's "Cover %" when run with --cov-branch.
+        When observed arc data is available (from the tracer) and static_arcs
+        are present (from coverage.py's PythonParser), branch coverage is
+        computed by direct arc lookup — no heuristics needed.
 
-        Arc rules:
-        - if/while/for: 2 arcs each (true branch, false branch); unreached still
-          contributes to arcs_total but 0 to arcs_covered.
-        - match non-last case: 2 arcs (body taken, next case reached).
-        - match last wildcard case: 0 arcs (always matches — no branching).
-        - match last non-wildcard case: 1 arc (body taken).
+        Falls back to BranchWalker heuristics when arc data is unavailable
+        (e.g. old serialized stores without arc data, or when coverage.py is
+        not installed).
 
         *file_analysis* is ``None`` when the source file could not be read or
         parsed, in which case an empty ``_BranchAnalysis`` is returned.
@@ -174,38 +188,104 @@ class DefaultReportBuilder:
             return _BranchAnalysis(partial=set(), arcs_total=0, arcs_covered=0, arcs_deliberate=0, arcs_incidental=0)
 
         _excluded = excluded or set()
+
+        # Try the direct arc-lookup path: requires both static_arcs and
+        # observed arc data from the tracer.  Only use when the store
+        # actually contains arc data (i.e. was populated by an arc-aware
+        # tracer, not an older store without arc recording).
+        observed_arcs: dict[tuple[int, int], ArcData] | None = None
+        if store is not None and abs_path is not None and store.has_arc_data():
+            observed_arcs = store.arcs_for_file(abs_path)
+
+        if file_analysis.static_arcs is not None and observed_arcs is not None:
+            return self._analyze_branches_from_arcs(
+                file_analysis.static_arcs, observed_arcs, _excluded,
+            )
+
+        # Fallback: heuristic-based branch detection via BranchWalker.
+        return self._analyze_branches_heuristic(file_analysis, lines, _excluded)
+
+    def _analyze_branches_from_arcs(
+        self,
+        static_arcs: set[tuple[int, int]],
+        observed_arcs: dict[tuple[int, int], ArcData],
+        excluded: set[int],
+    ) -> _BranchAnalysis:
+        """Compute branch coverage by directly looking up observed arcs against static_arcs.
+
+        This eliminates all heuristic-based branch detection.  Each arc in
+        static_arcs is checked against the observed arc dict from the tracer.
+        """
+        arcs_total = len(static_arcs)
+        arcs_covered = 0
+        arcs_deliberate = 0
+        arcs_incidental = 0
+        partial: set[int] = set()
+
+        # Group arcs by source line for partial detection
+        from collections import defaultdict
+        arcs_by_source: defaultdict[int, list[bool]] = defaultdict(list)
+
+        for src, tgt in static_arcs:
+            ad = observed_arcs.get((src, tgt))
+            taken = ad is not None and (ad.incidental_executions + ad.deliberate_executions) > 0
+            arcs_by_source[src].append(taken)
+            if taken:
+                assert ad is not None
+                arcs_covered += 1
+                if ad.deliberate_executions > 0:
+                    arcs_deliberate += 1
+                if ad.incidental_executions > 0:
+                    arcs_incidental += 1
+
+        # Partial: source lines where some arcs were taken but not all
+        for src, taken_list in arcs_by_source.items():
+            if any(taken_list) and not all(taken_list):
+                partial.add(src)
+
+        return _BranchAnalysis(
+            partial=partial,
+            arcs_total=arcs_total,
+            arcs_covered=arcs_covered,
+            arcs_deliberate=arcs_deliberate,
+            arcs_incidental=arcs_incidental,
+        )
+
+    def _analyze_branches_heuristic(
+        self,
+        file_analysis: FileAnalysis,
+        lines: dict[int, LineData],
+        excluded: set[int],
+    ) -> _BranchAnalysis:
+        """Fallback branch analysis using BranchWalker heuristics.
+
+        Used when observed arc data is not available (e.g. old serialized
+        stores, or when coverage.py is not installed).
+        """
         partial: set[int] = set()
         arcs_covered = 0
         arcs_deliberate = 0
         arcs_incidental = 0
 
         if file_analysis.static_arcs is not None:
-            # Use coverage.py's arc data for the denominator — this matches
-            # coverage.py's branch-coverage denominator exactly regardless of
-            # Python version or compiler optimisations.
             arcs_total = len(file_analysis.static_arcs)
-            # Source lines whose "exit" (negative-target) arc is in static_arcs.
-            # BranchWalker returns false_target=None when the false branch exits
-            # the current scope; we match those to coverage.py's negative arcs.
             exit_sources = {src for src, tgt in file_analysis.static_arcs if tgt < 0}
 
             for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
-                if bd.node_line in _excluded:
+                if bd.node_line in excluded:
                     continue
-                # Only count arcs that coverage.py also counts.  This filters
-                # out while-True headers and any other construct the static arc
-                # set doesn't include.
                 true_in_static = (bd.node_line, bd.true_target) in file_analysis.static_arcs
-                # BranchWalker uses a positive sibling line for the false target
-                # when one exists, and None when the false branch exits the scope.
-                # The latter corresponds to a negative arc in static_arcs.
-                false_in_static = (
-                    bd.false_target is not None
-                    and (bd.node_line, bd.false_target) in file_analysis.static_arcs
-                ) or (
-                    bd.false_target is None
-                    and bd.node_line in exit_sources
-                )
+                if bd.false_target is not None:
+                    false_in_static = (bd.node_line, bd.false_target) in file_analysis.static_arcs
+                    if not false_in_static and bd.node_line in exit_sources:
+                        false_in_static = True
+                elif bd.node_line in exit_sources:
+                    false_in_static = True
+                else:
+                    false_in_static = any(
+                        s == bd.node_line and (s, t) != (bd.node_line, bd.true_target)
+                        for s, t in file_analysis.static_arcs
+                    )
                 if not true_in_static and not false_in_static:
                     continue
 
@@ -218,26 +298,16 @@ class DefaultReportBuilder:
                     arcs_deliberate += (1 if bd.deliberate_false else 0)
                     arcs_incidental += (1 if bd.incidental_false else 0)
 
-                # bd.is_partial already encodes "was reached and not fully covered"
-                # correctly for every node type (if/for/while and match cases).
-                # We only add to partial when at least one arc for this node is
-                # tracked by the static arc set.
                 if bd.is_partial and (true_in_static or false_in_static):
                     partial.add(bd.node_line)
         else:
-            # Fallback when coverage.py is not available: use BranchWalker's
-            # own arc counting.
             arcs_total = 0
             for bd in self._branch_walker.walk_branches(file_analysis.tree, lines):
-                if bd.node_line in _excluded:
+                if bd.node_line in excluded:
                     continue
 
-                # Arcs whose target is an excluded line don't count.
-                # A branch with only one non-excluded target is not a real
-                # decision point — skip it entirely (mirrors coverage.py's
-                # behaviour of counting 0 arcs for such branches).
-                true_excluded = bd.true_target in _excluded
-                false_excluded = bd.false_target is not None and bd.false_target in _excluded
+                true_excluded = bd.true_target in excluded
+                false_excluded = bd.false_target is not None and bd.false_target in excluded
                 effective_arc_count = bd.arc_count - (1 if true_excluded else 0) - (1 if false_excluded else 0)
                 if effective_arc_count < 2:
                     continue
@@ -252,7 +322,6 @@ class DefaultReportBuilder:
                     arcs_deliberate += (1 if bd.deliberate_false else 0)
                     arcs_incidental += (1 if bd.incidental_false else 0)
 
-                # Recompute is_partial considering only non-excluded arcs.
                 if bd.is_partial:
                     if false_excluded:
                         is_partial = not bd.true_taken
@@ -273,6 +342,61 @@ class DefaultReportBuilder:
             arcs_deliberate=arcs_deliberate,
             arcs_incidental=arcs_incidental,
         )
+
+    @staticmethod
+    def _build_stmt_spans(file_analysis: FileAnalysis) -> dict[int, list[int]]:
+        """Build a map from executable statement start lines to all lines in their span.
+
+        For each AST statement node whose start line is executable, records all
+        line numbers from ``node.lineno`` to ``node.end_lineno`` (inclusive).
+        Only includes statements that span multiple lines — single-line
+        statements don't need consolidation.
+        """
+        import ast
+        spans: dict[int, list[int]] = {}
+        executable = file_analysis.executable_lines
+        for node in ast.walk(file_analysis.tree):
+            if not isinstance(node, ast.stmt):
+                continue
+            start = node.lineno
+            end = getattr(node, "end_lineno", start)
+            if start not in executable or end is None or end <= start:
+                continue
+            spans[start] = list(range(start, end + 1))
+        return spans
+
+    @staticmethod
+    def _is_stmt_covered(
+        ln: int,
+        line_data: dict[int, LineData],
+        stmt_spans: dict[int, list[int]],
+        *,
+        deliberate: bool = False,
+        incidental: bool = False,
+    ) -> bool:
+        """Check if an executable statement is covered, considering multi-line spans.
+
+        If the statement spans multiple lines, it is covered when any line in
+        its span has execution data.  This fixes the tracing gap where Python
+        doesn't fire line events for every line of a multi-line statement.
+        """
+        def _has_execution(ld: LineData | None) -> bool:
+            if ld is None:
+                return False
+            if deliberate:
+                return ld.deliberate_executions > 0
+            if incidental:
+                return ld.incidental_executions > 0
+            return ld.deliberate_executions > 0 or ld.incidental_executions > 0
+
+        # Fast path: check the start line directly
+        if _has_execution(line_data.get(ln)):
+            return True
+        # Multi-line consolidation: check all lines in the statement's span
+        span = stmt_spans.get(ln)
+        if span is not None:
+            return any(_has_execution(line_data.get(sl)) for sl in span)
+        return False
 
     @staticmethod
     def _pct(numerator: int, denominator: int) -> float:

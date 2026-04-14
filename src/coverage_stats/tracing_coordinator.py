@@ -169,7 +169,7 @@ class TracingCoordinator:
 
     @staticmethod
     def flush_pre_test_lines(ctx: ProfilerContext, store: SessionStore) -> None:
-        """Copy pre-test lines into the store as incidental + deliberate (if not already present).
+        """Copy pre-test lines and arcs into the store as incidental + deliberate (if not already present).
 
         Lines executed before any test phase (module imports, module-level code,
         bodies of functions called at module level) are recorded in
@@ -187,3 +187,10 @@ class TracingCoordinator:
                 ld.incidental_executions = 1
                 ld.deliberate_executions = 1
         ctx.pre_test_lines.clear()
+        # Flush pre-test arcs the same way: both incidental and deliberate.
+        for arc_key in list(ctx.pre_test_arcs):
+            ad = store.get_or_create_arc(arc_key)
+            if ad.incidental_executions == 0 and ad.deliberate_executions == 0:
+                ad.incidental_executions = 1
+                ad.deliberate_executions = 1
+        ctx.pre_test_arcs.clear()

@@ -13,8 +13,8 @@ from coverage_stats.store import SessionStore
 THIS_FILE = str(Path(__file__).resolve())
 
 
-def make_frame(filename, lineno):
-    code = types.SimpleNamespace(co_filename=filename)
+def make_frame(filename, lineno, co_firstlineno=1):
+    code = types.SimpleNamespace(co_filename=filename, co_firstlineno=co_firstlineno)
     return types.SimpleNamespace(f_code=code, f_lineno=lineno)
 
 

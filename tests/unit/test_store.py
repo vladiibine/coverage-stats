@@ -95,7 +95,8 @@ class TestSessionStoreMerge:
 class TestSessionStoreToDict:
     def test_empty_store_returns_empty_dict(self) -> None:
         store = SessionStore()
-        assert store.to_dict() == {}
+        result = store.to_dict()
+        assert result == {"lines": {}, "arcs": {}}
 
     def test_to_dict_contains_null_byte_separated_key(self) -> None:
         store = SessionStore()
@@ -107,8 +108,18 @@ class TestSessionStoreToDict:
         ld.deliberate_asserts = 4
 
         result = store.to_dict()
-        assert "/some/path.py\x0099" in result
-        assert result["/some/path.py\x0099"] == [1, 2, 3, 4, 0, 0]
+        assert "/some/path.py\x0099" in result["lines"]
+        assert result["lines"]["/some/path.py\x0099"] == [1, 2, 3, 4, 0, 0]
+
+    def test_to_dict_contains_arc_data(self) -> None:
+        store = SessionStore()
+        ad = store.get_or_create_arc(("/some/path.py", 10, 15))
+        ad.incidental_executions = 3
+        ad.deliberate_executions = 7
+
+        result = store.to_dict()
+        assert "/some/path.py\x0010\x0015" in result["arcs"]
+        assert result["arcs"]["/some/path.py\x0010\x0015"] == [3, 7]
 
 
 @covers(SessionStore.to_dict, SessionStore.from_dict)

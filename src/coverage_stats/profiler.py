@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dis
 import sys
 import types
 import warnings
@@ -14,6 +15,47 @@ if TYPE_CHECKING:
 # sys.settrace expects Callable[[FrameType, str, Any], TraceFunction | None].
 # Using Any for arg and return keeps this compatible with typeshed's TraceFunction.
 _TraceFunc = Callable[[types.FrameType, str, Any], Any]
+
+# ---------------------------------------------------------------------------
+# Yield-vs-return detection for sys.settrace (Python < 3.12)
+# ---------------------------------------------------------------------------
+# Python fires "return" trace events for both genuine function returns and
+# every suspend point in a generator or async generator.  The opcode at
+# frame.f_lasti tells us which case we are in.
+_OP_RETURN_VALUE: int = dis.opmap.get("RETURN_VALUE", -1)
+_OP_YIELD_VALUE: int = dis.opmap.get("YIELD_VALUE", -1)
+_OP_YIELD_FROM: int = dis.opmap.get("YIELD_FROM", -1)
+_OP_RESUME: int = dis.opmap.get("RESUME", -1)  # Python 3.11+ only
+
+
+def _is_real_return(frame: types.FrameType) -> bool:
+    """Return True iff this sys.settrace 'return' event is a genuine function exit.
+
+    On Python < 3.12, sys.settrace fires 'return' for both real returns and
+    every yield from a generator or async generator.  Inspect the bytecode at
+    frame.f_lasti to distinguish them — mirrors coverage.py's PyTracer logic.
+    """
+    try:
+        code_bytes = frame.f_code.co_code
+        lasti = frame.f_lasti
+        if lasti < 0 or lasti >= len(code_bytes):
+            return True
+        op = code_bytes[lasti]
+        if _OP_RESUME >= 0:
+            # Python 3.11+: RESUME marks a generator-resume point; real returns
+            # land on any other opcode or at the very end of the code object.
+            return len(code_bytes) == lasti + 2 or op != _OP_RESUME
+        # Python 3.9 / 3.10: check opcode directly.
+        if op == _OP_RETURN_VALUE:
+            return True
+        if op == _OP_YIELD_VALUE:
+            return False
+        # 'yield from' delegation: YIELD_FROM is 2 bytes after lasti.
+        if _OP_YIELD_FROM >= 0 and lasti + 2 < len(code_bytes) and code_bytes[lasti + 2] == _OP_YIELD_FROM:
+            return False
+        return True
+    except Exception:
+        return True  # on any error, assume real return to avoid silently dropping arcs
 
 
 @dataclass
@@ -31,6 +73,9 @@ class ProfilerContext:
     # Populated when current_phase is None so that module-level statements
     # (including bodies of functions called at import time) are recorded.
     pre_test_lines: set[tuple[str, int]] = field(default_factory=set)
+    # Arcs observed before any test phase (module-level arc transitions).
+    # Flushed into the store alongside pre_test_lines.
+    pre_test_arcs: set[tuple[str, int, int]] = field(default_factory=set)
     # Resolved @covers lines for the current test, set once in pytest_runtest_setup
     # and read on every line event.  Storing it here avoids a getattr() on every
     # line event in the tracer hot path.
@@ -89,6 +134,9 @@ class MonitoringLineTracer:
         self._store = store
         self._tool_id: int | None = None
         self._scope_cache: dict[str, tuple[str, bool]] = {}
+        # Per-code-object prev_line tracker for arc recording.
+        # Key: id(code_object), Value: (resolved_filename, prev_line)
+        self._prev_line: dict[int, tuple[str, int]] = {}
         # Precompute (exact, prefix/) pairs once so _in_scope avoids allocating
         # `d + "/"` on every call.
         self._source_prefixes: list[tuple[str, str]] = [
@@ -117,8 +165,12 @@ class MonitoringLineTracer:
         if self._tool_id is None:
             warnings.warn("coverage-stats: no sys.monitoring tool ID available, line tracing disabled")
             return
-        monitoring.set_events(self._tool_id, monitoring.events.LINE)
+        monitoring.set_events(
+            self._tool_id,
+            monitoring.events.LINE | monitoring.events.PY_RETURN,
+        )
         monitoring.register_callback(self._tool_id, monitoring.events.LINE, self._monitoring_line)
+        monitoring.register_callback(self._tool_id, monitoring.events.PY_RETURN, self._monitoring_return)
 
     def stop(self) -> None:
         if self._tool_id is None:
@@ -128,6 +180,7 @@ class MonitoringLineTracer:
             return
         monitoring.set_events(self._tool_id, monitoring.events.NO_EVENTS)
         monitoring.register_callback(self._tool_id, monitoring.events.LINE, None)
+        monitoring.register_callback(self._tool_id, monitoring.events.PY_RETURN, None)
         monitoring.free_tool_id(self._tool_id)
         self._tool_id = None
 
@@ -141,6 +194,51 @@ class MonitoringLineTracer:
         if self._source_prefixes:
             return any(filename == d or filename.startswith(p) for d, p in self._source_prefixes)
         return True
+
+    def _monitoring_return(self, code: types.CodeType, instruction_offset: int, retval: object) -> object:
+        """Callback invoked by sys.monitoring for PY_RETURN events.
+
+        Records the exit arc (last_line, -co_firstlineno) for in-scope frames.
+        Returns DISABLE for out-of-scope code objects.
+        """
+        # Guard against interpreter shutdown when sys.monitoring is torn down
+        monitoring = getattr(sys, "monitoring", None)
+        if monitoring is None:
+            return None
+        raw = code.co_filename
+        cached = self._scope_cache.get(raw)
+        if cached is not None:
+            filename, in_scope = cached
+        else:
+            if raw.startswith("<"):
+                self._scope_cache[raw] = (raw, False)
+                return monitoring.DISABLE
+            filename = str(Path(raw).resolve())
+            in_scope = self._in_scope(filename)
+            self._scope_cache[raw] = (filename, in_scope)
+
+        if not in_scope:
+            return monitoring.DISABLE
+
+        code_id = id(code)
+        prev = self._prev_line.pop(code_id, None)
+        if prev is None:
+            return None
+        prev_filename, prev_line = prev
+        # Don't record if prev_line is still the entry sentinel
+        if prev_line == -code.co_firstlineno:
+            return None
+        ctx = self._context
+        if ctx.current_phase == "call" and ctx.current_test_item is not None:
+            arc_key = (prev_filename, prev_line, -code.co_firstlineno)
+            ad = self._store.get_or_create_arc(arc_key)
+            if (prev_filename, prev_line) in ctx.current_covers_lines:
+                ad.deliberate_executions += 1
+            else:
+                ad.incidental_executions += 1
+        elif ctx.current_phase is None:
+            ctx.pre_test_arcs.add((prev_filename, prev_line, -code.co_firstlineno))
+        return None
 
     def _monitoring_line(self, code: types.CodeType, line_number: int) -> object:
         """Callback invoked by sys.monitoring for every LINE event.
@@ -168,13 +266,45 @@ class MonitoringLineTracer:
         key = (filename, line_number)
         if ctx.current_phase == "call" and ctx.current_test_item is not None:
             ld = self._store.get_or_create(key)
-            if key in ctx.current_covers_lines:
+            is_deliberate = key in ctx.current_covers_lines
+            if is_deliberate:
                 ld.deliberate_executions += 1
             else:
                 ld.incidental_executions += 1
             ctx.current_test_lines.add(key)
+            # Record arc transition.  On first line event for a code object,
+            # initialize prev_line to -co_firstlineno (entry arc).
+            code_id = id(code)
+            prev = self._prev_line.get(code_id)
+            if prev is not None:
+                prev_filename, prev_line = prev
+                if prev_filename == filename:
+                    ad = self._store.get_or_create_arc((filename, prev_line, line_number))
+                    if is_deliberate:
+                        ad.deliberate_executions += 1
+                    else:
+                        ad.incidental_executions += 1
+            else:
+                # First line event for this code object — record entry arc
+                entry_arc = (filename, -code.co_firstlineno, line_number)
+                ad = self._store.get_or_create_arc(entry_arc)
+                if is_deliberate:
+                    ad.deliberate_executions += 1
+                else:
+                    ad.incidental_executions += 1
+            self._prev_line[code_id] = (filename, line_number)
         elif ctx.current_phase is None:
             ctx.pre_test_lines.add(key)
+            # Record arc transition during pre-test phase
+            code_id = id(code)
+            prev = self._prev_line.get(code_id)
+            if prev is not None:
+                prev_filename, prev_line = prev
+                if prev_filename == filename:
+                    ctx.pre_test_arcs.add((filename, prev_line, line_number))
+            else:
+                ctx.pre_test_arcs.add((filename, -code.co_firstlineno, line_number))
+            self._prev_line[code_id] = (filename, line_number)
         return None
 
 
@@ -274,7 +404,7 @@ class LineTracer:
                 return None  # type: ignore[return-value]
             return self._make_forwarding_trace(prev_local)
 
-        return self._make_local_trace(filename, prev_local)
+        return self._make_local_trace(filename, prev_local, frame)
 
     def _make_forwarding_trace(self, prev_local: _TraceFunc) -> _TraceFunc:
         """Minimal local tracer for out-of-scope frames that only chains prev_local."""
@@ -292,7 +422,7 @@ class LineTracer:
 
         return forward
 
-    def _make_local_trace(self, filename: str, prev_local: _TraceFunc | None) -> _TraceFunc:
+    def _make_local_trace(self, filename: str, prev_local: _TraceFunc | None, frame: types.FrameType) -> _TraceFunc:
         """Return a per-frame local trace function for an in-scope frame.
 
         The filename is already resolved and known to be in scope — no repeated
@@ -303,13 +433,23 @@ class LineTracer:
         repeated LOAD_ATTR on self.  Python calls local trace functions only for
         "line", "return", and "exception" events; we handle "line" by position
         (frame.f_lineno) and let the other two pass through cheaply.
+
+        Arc recording: tracks the previous line number per frame and records
+        (prev_line, current_line) arc transitions on each line event.  On return
+        events, records an exit arc (last_line, -co_firstlineno) matching
+        coverage.py's negative-arc convention.
         """
         ctx = self._context  # captured once — avoids LOAD_ATTR on self per call
         store = self._store  # captured once — avoids LOAD_ATTR on self per call
         current_prev = prev_local
+        # prev_line tracks the last line seen in this frame for arc recording.
+        # Initialised to -co_firstlineno (entry arc source) so the first line
+        # event records an entry arc matching coverage.py's convention.
+        prev_line: int = -frame.f_code.co_firstlineno
+        co_firstlineno: int = frame.f_code.co_firstlineno
 
         def local(frame: types.FrameType, event: str, arg: Any) -> _TraceFunc:
-            nonlocal current_prev
+            nonlocal current_prev, prev_line
             try:
                 if current_prev is not None:
                     current_prev = current_prev(frame, event, arg)
@@ -318,13 +458,36 @@ class LineTracer:
                     key = (filename, lineno)
                     if ctx.current_phase == "call" and ctx.current_test_item is not None:
                         ld = store.get_or_create(key)
-                        if key in ctx.current_covers_lines:
+                        is_deliberate = key in ctx.current_covers_lines
+                        if is_deliberate:
                             ld.deliberate_executions += 1
                         else:
                             ld.incidental_executions += 1
                         ctx.current_test_lines.add(key)
+                        # Record arc transition
+                        ad = store.get_or_create_arc((filename, prev_line, lineno))
+                        if is_deliberate:
+                            ad.deliberate_executions += 1
+                        else:
+                            ad.incidental_executions += 1
                     elif ctx.current_phase is None:
                         ctx.pre_test_lines.add(key)
+                        ctx.pre_test_arcs.add((filename, prev_line, lineno))
+                    prev_line = lineno
+                elif event == "return":
+                    # Record exit arc: (last_line, -function_start_line).
+                    # Skip yields: on Python < 3.12 sys.settrace fires "return"
+                    # for both real returns and generator suspends.
+                    if prev_line != -co_firstlineno and _is_real_return(frame):
+                        if ctx.current_phase == "call" and ctx.current_test_item is not None:
+                            arc_key = (filename, prev_line, -co_firstlineno)
+                            ad = store.get_or_create_arc(arc_key)
+                            if (filename, prev_line) in ctx.current_covers_lines:
+                                ad.deliberate_executions += 1
+                            else:
+                                ad.incidental_executions += 1
+                        elif ctx.current_phase is None:
+                            ctx.pre_test_arcs.add((filename, prev_line, -co_firstlineno))
             except Exception as exc:
                 warnings.warn(f"coverage-stats: tracer error: {exc}")
             return local

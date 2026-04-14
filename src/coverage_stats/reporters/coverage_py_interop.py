@@ -7,6 +7,19 @@ from typing import Any, Callable, Protocol
 from coverage_stats.reporters.branch_analysis import BranchWalker
 from coverage_stats.store import LineData, SessionStore
 
+# Guard coverage.py imports — it may not be installed.
+try:
+    from coverage.python import PythonParser as _PythonParser  # type: ignore[attr-defined]
+    from coverage.config import CoverageConfig as _CoverageConfig
+
+    _cfg = _CoverageConfig()
+    _COV_EXCLUDE_RE: str | None = "(" + ")|(".join(_cfg.exclude_list) + ")"
+    del _cfg
+    _HAS_COVERAGE_PARSER = True
+except (ImportError, AttributeError, TypeError):
+    _HAS_COVERAGE_PARSER = False
+    _COV_EXCLUDE_RE = None
+
 
 class CoveragePyInteropProto(Protocol):
     """Protocol for coverage.py data injection.
@@ -96,17 +109,29 @@ class CoveragePyInterop:
                 arcs.append((bd.node_line, bd.false_target))
         return arcs
 
-    def compute_full_arcs(self, path: str, lines: dict[int, LineData]) -> list[tuple[int, int]]:
+    def compute_full_arcs(
+        self,
+        path: str,
+        lines: dict[int, LineData],
+        store: SessionStore | None = None,
+    ) -> list[tuple[int, int]]:
         """Compute comprehensive execution arcs for coverage.py branch-mode injection.
 
         When coverage.py runs with --cov-branch, it stores arc data and derives
         line coverage from arcs.  add_lines() is rejected in that mode, so we
         must provide ALL coverage information via add_arcs().
 
+        When *store* is provided and ``store.has_arc_data()`` is True, the real
+        arc data from the store is used instead of BranchWalker heuristics.  The
+        raw arcs are normalised through ``PythonParser.translate_arcs()`` (the
+        same normalisation coverage.py applies to its own tracer data) to fix
+        multi-line statement mismatches.
+
         This generates three kinds of arcs:
         1. Function/module entry and exit arcs (negative line numbers)
         2. Sequential arcs between consecutive executed lines in the same scope
-        3. Branch arcs from compute_arcs() (if/for/while/match)
+        3. Branch arcs — either from store arc data (preferred) or from
+           compute_arcs() heuristics when store arc data is unavailable.
 
         Coverage.py ignores injected arcs that fall outside its own
         arc_possibilities set, so slightly imprecise sequential arcs (e.g.
@@ -173,10 +198,33 @@ class CoveragePyInterop:
                 arcs.add((fn_lines[i], fn_lines[i + 1]))
             arcs.add((fn_lines[-1], -scope_key))
 
-        # Branch arcs (may duplicate sequential arcs — set handles dedup).
-        # Use the already-parsed tree to avoid a second ast.parse call.
-        for arc in self._compute_arcs_from_tree(tree, lines):
-            arcs.add(arc)
+        # Real arc data path: use observed arcs from the store when available.
+        # This replaces BranchWalker heuristics and preserves the actual
+        # branch arcs recorded by the tracer (including all false branches).
+        use_real_arcs = (
+            store is not None
+            and store.has_arc_data()
+            and _HAS_COVERAGE_PARSER
+        )
+        if use_real_arcs and store is not None:
+            raw_arcs = set(store.arcs_for_file(path).keys())
+            # Normalise through PythonParser.translate_arcs() to fix
+            # multi-line statement mismatches, same as coverage.py does.
+            try:
+                p = _PythonParser(text=source, exclude=_COV_EXCLUDE_RE)
+                p.parse_source()
+                normalized = p.translate_arcs(raw_arcs)
+                for arc in normalized:
+                    arcs.add(arc)
+            except Exception:
+                # Fall back to raw arcs if translate_arcs fails.
+                for arc in raw_arcs:
+                    arcs.add(arc)
+        else:
+            # Heuristic path: branch arcs from BranchWalker.
+            # Use the already-parsed tree to avoid a second ast.parse call.
+            for arc in self._compute_arcs_from_tree(tree, lines):
+                arcs.add(arc)
 
         return list(arcs)
 
@@ -185,8 +233,17 @@ class CoveragePyInterop:
 
         Returns the full set of arcs (entry/exit + sequential + branch) needed
         when coverage.py is in branch mode and add_lines() cannot be used.
+
+        When the store contains real arc data (``store.has_arc_data()`` is
+        True), the observed arcs are used directly — normalised through
+        ``PythonParser.translate_arcs()`` — instead of the BranchWalker
+        heuristics.  Sequential arcs are added in both cases so every executed
+        line appears in the arc data for line coverage.
         """
-        return {path: self.compute_full_arcs(path, line_data) for path, line_data in store.files().items()}
+        return {
+            path: self.compute_full_arcs(path, line_data, store=store)
+            for path, line_data in store.files().items()
+        }
 
     def patch_coverage_save(
         self,

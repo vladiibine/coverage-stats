@@ -171,6 +171,10 @@ class BranchWalker:
                 continue
             if idx + 1 < len(siblings):
                 return int(siblings[idx + 1].lineno)  # type: ignore[attr-defined]
+            # Last statement in a loop body: the continuation is the
+            # loop header (back-edge), not the next sibling of the loop.
+            if attr == "body" and isinstance(parent, (ast.For, ast.AsyncFor, ast.While)):
+                return parent.lineno
             return self._next_sibling_lineno(parent, parent_map)
         return None
 

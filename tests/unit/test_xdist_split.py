@@ -198,9 +198,10 @@ def test_worker_sessionfinish_populates_workeroutput():
     raw = config.workeroutput.get("coverage_stats_data")
     assert raw is not None
     parsed = json.loads(raw)
-    # Just verify at least one entry present and value is correct
-    assert len(parsed) == 1
-    values = list(parsed.values())[0]
+    # New format: {"lines": {...}, "arcs": {...}}
+    assert "lines" in parsed
+    assert len(parsed["lines"]) == 1
+    values = list(parsed["lines"].values())[0]
     assert values[0] == 4  # incidental_executions
 
 

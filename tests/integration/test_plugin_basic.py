@@ -324,3 +324,61 @@ coverage_stats_output_dir = coverage-stats-report
         f"Module-level lines executed at conftest import time are missing from the report: {missing}. "
         f"Covered lines: {sorted(covered)}"
     )
+
+
+def test_coverage_stats_source_cli_option_overrides_ini(pytester):
+    """--coverage-stats-source restricts tracing to the given directory.
+
+    Even if coverage_stats_source is not set in the ini (falling back to
+    rootdir), passing --coverage-stats-source on the command line must limit
+    tracking to only the specified source directory.  Files outside it (e.g.
+    a conftest.py at the project root) must not appear in the report.
+    """
+    src_dir = pytester.path / "mypackage"
+    src_dir.mkdir()
+    (src_dir / "core.py").write_text("def add(a, b):\n    return a + b\n")
+
+    # conftest.py at the project root — must NOT appear in the report
+    # when --coverage-stats-source=mypackage is passed.
+    pytester.makeconftest("# root conftest — should not be tracked\nROOT = True\n")
+
+    pytester.makepyfile(
+        test_core="""\
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from mypackage.core import add
+
+def test_add():
+    assert add(1, 2) == 3
+"""
+    )
+
+    # No coverage_stats_source in ini — would fall back to rootdir without the CLI flag.
+    pytester.makeini(
+        """\
+[pytest]
+coverage_stats_format = json
+coverage_stats_output_dir = coverage-stats-report
+"""
+    )
+
+    result = pytester.runpytest(
+        "--coverage-stats",
+        "--coverage-stats-source=mypackage",
+        "-v",
+    )
+    result.assert_outcomes(passed=1)
+
+    report = json.loads(
+        (pytester.path / "coverage-stats-report" / "coverage-stats.json").read_text()
+    )
+    files = report["files"]
+
+    pkg_keys = [k for k in files if "core" in k]
+    assert pkg_keys, f"mypackage/core.py not found in report: {list(files.keys())}"
+
+    conftest_keys = [k for k in files if "conftest" in k]
+    assert not conftest_keys, (
+        f"conftest.py should not be tracked when --coverage-stats-source=mypackage is set, "
+        f"but found: {conftest_keys}"
+    )

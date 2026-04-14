@@ -22,9 +22,18 @@ class _FakeItem:
     """Minimal stand-in for pytest.Item — only its identity matters."""
 
 
+class _FakeCode:
+    """Minimal code-object stand-in for _FakeFrame."""
+    co_firstlineno: int = 1
+    # Bytecode for a trivial function ending with RETURN_VALUE (opcode 83).
+    co_code: bytes = bytes([83, 0])  # RETURN_VALUE
+
+
 class _FakeFrame:
-    """Minimal frame-like object; the local trace function only reads f_lineno."""
+    """Minimal frame-like object for the local trace function."""
     f_lineno: int = 10
+    f_lasti: int = 0
+    f_code: _FakeCode = _FakeCode()
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +50,7 @@ def tracer_in_scope():
     ctx.current_test_item = _FakeItem()  # type: ignore[assignment]
     ctx.current_covers_lines = frozenset()
     tracer = LineTracer(ctx, store)
-    local = tracer._make_local_trace("/src/module.py", None)
+    local = tracer._make_local_trace("/src/module.py", None, _FakeFrame())  # type: ignore[arg-type]
     return local, store
 
 
@@ -93,7 +102,7 @@ def test_line_tracer_scope_cache_hit(benchmark):
 
     # Scope cache already warm: _make_local_trace has the resolved filename.
     tracer._scope_cache["/src/module.py"] = ("/src/module.py", True)
-    local = tracer._make_local_trace("/src/module.py", None)
+    local = tracer._make_local_trace("/src/module.py", None, _FakeFrame())  # type: ignore[arg-type]
     frame = _FakeFrame()
 
     def run():

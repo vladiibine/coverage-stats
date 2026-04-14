@@ -146,13 +146,17 @@ class CoverageStatsCustomization:
         cls: type[ReportingCoordinator] = self._load_class(self.reporting_coordinator)
         return cls(store, self, coverage_py_active=self.coverage_py_active)
 
-    def get_source_dirs(self) -> list[str]:
+    def get_source_dirs(self, cli_source: str | None = None) -> list[str]:
         """Resolve the source directories to trace, relative to the rootdir.
 
-        Falls back to the project rootdir when none of the configured source
-        directories exist on disk (e.g. projects that don't use a ``src/`` layout).
+        Resolution order:
+        1. *cli_source* — value parsed from ``--coverage-stats-source`` in the
+           raw args list by ``pytest_load_initial_conftests`` (most reliable at
+           early-config time).
+        2. ``coverage_stats_source`` ini value.
+        3. Project rootdir (broadest fallback).
         """
-        raw_source = self.config.getini("coverage_stats_source")
+        raw_source = cli_source if cli_source is not None else self.config.getini("coverage_stats_source")
         rootdir = Path(str(self.config.rootpath))
         candidate_dirs = [
             (rootdir / d).resolve() if not Path(d).is_absolute() else Path(d).resolve()
@@ -334,6 +338,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Comma-separated list of reporter classes (module.path.ClassName)",
     )
+    parser.addoption(
+        "--coverage-stats-source",
+        type=str,
+        default=None,
+        help="Source directories to trace (space-separated). Overrides coverage_stats_source ini value.",
+    )
     parser.addini(
         "coverage_stats_source",
         help="Source directories to profile (space-separated). Defaults to 'src'.",
@@ -412,6 +422,16 @@ def pytest_load_initial_conftests(early_config: pytest.Config, parser: pytest.Pa
     if "--coverage-stats" not in args:
         return
 
+    # Parse --coverage-stats-source from the raw args list.  getoption() is
+    # unreliable at early_config time for plugin-registered options; the raw
+    # args list is always accurate.
+    cli_source: str | None = None
+    _prefix = "--coverage-stats-source="
+    for _arg in args:
+        if _arg.startswith(_prefix):
+            cli_source = _arg[len(_prefix):]
+            break
+
     try:
         customization_path = (
             early_config.getini("coverage_stats_customization")
@@ -428,7 +448,7 @@ def pytest_load_initial_conftests(early_config: pytest.Config, parser: pytest.Pa
         if customization.is_xdist_controller():
             return
 
-        source_dirs = customization.get_source_dirs()
+        source_dirs = customization.get_source_dirs(cli_source=cli_source)
         exclude_dirs = customization.get_exclude_dirs()
         store = customization.get_store()
         ctx = customization.get_profiler_context(source_dirs, exclude_dirs)
