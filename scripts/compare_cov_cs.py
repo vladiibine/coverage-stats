@@ -14,8 +14,10 @@ Arguments:
 Options:
     --source DIR  Source directory passed to --cov (default: src).
     --tests DIR   Test directory passed to pytest (default: tests).
-    --output FILE Path for the generated .md report
-                  (default: <project_dir>/coverage-comparison.md).
+    --output FILE Path for the generated .md report.  All artefacts (JSON data,
+                  HTML reports) are placed in the same directory as the .md file.
+                  (default: scripts/output/<stem>/<stem>.md where stem encodes
+                  the Python version and timestamp).
     --precision N Decimal places in reported percentages (default: 4).
 
 The script:
@@ -31,18 +33,16 @@ Examples — httpx (coverage-stats-extensive-examples/httpx):
   and .venv-3.12 (Python 3.12).  Run from the coverage-stats repo root:
 
   # Python 3.9 venv — full test suite
-  python scripts/compare_cov_cs.py coverage-stats-extensive-examples/httpx \
+  python3 scripts/compare_cov_cs.py coverage-stats-extensive-examples/httpx \
     coverage-stats-extensive-examples/httpx/.venv \
     --source httpx \
-    --tests tests \
-    --output scripts/output/coverage-comparison-py39.md
+    --tests tests
 
   # Python 3.12 venv — full test suite
-  python scripts/compare_cov_cs.py \
+  python3 scripts/compare_cov_cs.py \
       coverage-stats-extensive-examples/httpx \
-      coverage-stats-extensive-examples/httpx/.venv-3.12 \
-      --source httpx --tests tests \
-      --output scripts/output/coverage-comparison-py312.md
+      coverage-stats-extensive-examples/httpx/.venv-3.10 \
+      --source httpx --tests tests
 
   To run a single test file instead of the full suite (faster), replace
   ``--tests tests`` with e.g. ``--tests tests/test_auth.py``.
@@ -53,7 +53,7 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
+from datetime import datetime
 from pathlib import Path
 
 
@@ -73,7 +73,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output",
         default=None,
-        help="Output .md path (default: <project_dir>/coverage-comparison.md)",
+        help="Path for the .md report; sibling artefacts go in the same directory "
+             "(default: scripts/output/<stem>/<stem>.md)",
     )
     p.add_argument("--precision", type=int, default=4, help="Decimal places (default: 4)")
     return p.parse_args()
@@ -82,6 +83,32 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Running the tests
 # ---------------------------------------------------------------------------
+
+def _scripts_output_dir() -> Path:
+    """Return <repo_root>/scripts/output, creating it if necessary."""
+    return Path(__file__).parent / "output"
+
+
+def _python_version_str(venv_dir: Path) -> str:
+    """Return a short version string like '3.9' from the venv's Python binary."""
+    for candidate in (
+        venv_dir / "bin" / "python",
+        venv_dir / "bin" / "python3",
+        venv_dir / "Scripts" / "python.exe",
+        venv_dir / "Scripts" / "python",
+    ):
+        if candidate.exists():
+            try:
+                result = subprocess.run(
+                    [str(candidate), "-c",
+                     "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                return result.stdout.strip()
+            except Exception:
+                pass
+    return "unknown"
+
 
 def find_pytest(venv_dir: Path) -> Path:
     for candidate in (
@@ -101,19 +128,21 @@ def run_tests(
     tests: str,
     stats_out: Path,
     cov_json: Path,
+    cov_html: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Run pytest once, collecting data for both tools simultaneously."""
     cmd = [
         str(pytest_bin),
         tests,
-        # coverage-stats
+        # coverage-stats: JSON for comparison + HTML for browsing
         "--coverage-stats",
-        "--coverage-stats-format=json",
+        "--coverage-stats-format=json,html",
         f"--coverage-stats-output={stats_out}",
-        # coverage.py
+        # coverage.py: JSON for comparison + HTML for browsing
         f"--cov={source}",
         "--cov-branch",
         f"--cov-report=json:{cov_json}",
+        f"--cov-report=html:{cov_html}",
         # Suppress the "CoverageWarning: --include is ignored because --source
         # is set" warning that coverage.py emits when the project config has
         # an `include` key and we also pass --cov=SOURCE.  Projects with
@@ -306,7 +335,19 @@ def main() -> int:
 
     project_dir = Path(args.project_dir).resolve()
     venv_dir    = Path(args.venv_dir).resolve()
-    output_path = Path(args.output).resolve() if args.output else project_dir / "coverage-comparison.md"
+    if args.output:
+        md_path = Path(args.output).resolve()
+    else:
+        py_ver = _python_version_str(venv_dir)
+        stamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+        stem = f"compare_cov_cs_py_{py_ver}_{stamp}"
+        md_path = (_scripts_output_dir() / stem / f"{stem}.md").resolve()
+
+    # All run artefacts (JSON, HTML) live alongside the .md in its directory.
+    run_dir   = md_path.parent
+    stats_out = run_dir / "coverage-stats"
+    cov_json  = run_dir / "coverage.json"
+    cov_html  = run_dir / "coverage-py-html"
 
     if not project_dir.is_dir():
         print(f"error: project_dir not found: {project_dir}", file=sys.stderr)
@@ -315,38 +356,38 @@ def main() -> int:
         print(f"error: venv_dir not found: {venv_dir}", file=sys.stderr)
         return 1
 
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     pytest_bin = find_pytest(venv_dir)
 
-    with tempfile.TemporaryDirectory(prefix="cov-compare-") as tmp:
-        tmp_path  = Path(tmp)
-        stats_out = tmp_path / "stats"
-        cov_json  = tmp_path / "coverage.json"
+    result = run_tests(
+        pytest_bin,
+        project_dir,
+        args.source,
+        args.tests,
+        stats_out,
+        cov_json,
+        cov_html,
+    )
 
-        result = run_tests(
-            pytest_bin,
-            project_dir,
-            args.source,
-            args.tests,
-            stats_out,
-            cov_json,
-        )
+    stats_json = stats_out / "coverage-stats.json"
+    if not stats_json.exists():
+        print(f"error: coverage-stats JSON not produced at {stats_json}", file=sys.stderr)
+        print("pytest exit code:", result.returncode, file=sys.stderr)
+        return 1
+    if not cov_json.exists():
+        print(f"error: coverage.py JSON not produced at {cov_json}", file=sys.stderr)
+        print("pytest exit code:", result.returncode, file=sys.stderr)
+        return 1
 
-        stats_json = stats_out / "coverage-stats.json"
-        if not stats_json.exists():
-            print(f"error: coverage-stats JSON not produced at {stats_json}", file=sys.stderr)
-            print("pytest exit code:", result.returncode, file=sys.stderr)
-            return 1
-        if not cov_json.exists():
-            print(f"error: coverage.py JSON not produced at {cov_json}", file=sys.stderr)
-            print("pytest exit code:", result.returncode, file=sys.stderr)
-            return 1
-
-        stats = load_stats_json(stats_json)
-        cov   = load_cov_json(cov_json)
+    stats = load_stats_json(stats_json)
+    cov   = load_cov_json(cov_json)
 
     report = build_report(stats, cov, args.precision)
-    output_path.write_text(report, encoding="utf-8")
-    print(f"\nReport written to: {output_path}")
+    md_path.write_text(report, encoding="utf-8")
+    print(f"\nReport:                {md_path}")
+    print(f"coverage-stats HTML:   {stats_out / 'index.html'}")
+    print(f"coverage.py HTML:      {cov_html / 'index.html'}")
     return 0
 
 

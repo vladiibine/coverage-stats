@@ -6,11 +6,24 @@ import textwrap
 import pytest
 
 from coverage_stats import covers
-from coverage_stats.store import LineData
+from coverage_stats.store import LineData, SessionStore
 from coverage_stats.reporters.report_data import DefaultReportBuilder
 from coverage_stats.executable_lines import ExecutableLinesAnalyzer
 
 _analyzer = ExecutableLinesAnalyzer()
+
+# True only when coverage.py is installed AND its PythonParser still exposes the
+# private ``_multiline`` attribute that our normalization path reads.  The attribute
+# was renamed to the public ``multiline_map`` somewhere between coverage 7.10.7 and
+# 7.13.5; tests that rely on the old attribute skip automatically on newer versions.
+try:
+    from coverage.parser import PythonParser as _PythonParser
+    _p = _PythonParser(text="x = 1")
+    _p.parse_source()
+    _COVERAGE_PRIVATE_MULTILINE_AVAILABLE = hasattr(_p, "_multiline")
+    del _p, _PythonParser
+except Exception:
+    _COVERAGE_PRIVATE_MULTILINE_AVAILABLE = False
 
 
 def _ld(count: int) -> LineData:
@@ -602,3 +615,74 @@ def test_branch_with_one_excluded_target_not_counted(tmp_path):
     # True target is excluded → only 1 effective arc → branch skipped entirely.
     assert result.arcs_total == 0
     assert if_line not in result.partial
+
+
+# ---------------------------------------------------------------------------
+# Multiline arc normalization (fix for PythonParser vs raw tracer mismatch)
+# ---------------------------------------------------------------------------
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+@pytest.mark.skipif(
+    not _COVERAGE_PRIVATE_MULTILINE_AVAILABLE,
+    reason=(
+        "Requires coverage.py with PythonParser._multiline (< ~7.13); "
+        "newer versions renamed it to the public .multiline_map attribute "
+        "which our normalization path does not yet read"
+    ),
+)
+def test_multiline_ternary_false_branch_not_partial(tmp_path):
+    """Branch whose False-target lands in the middle of a multi-line expression is not partial.
+
+    When ``if x > 0:`` is False, Python's bytecode jumps to offset 12 which is
+    labeled line 6 (the ternary's condition, inside a multi-line expression that
+    starts at line 4).  The tracer records arc (2, 6); PythonParser says arc
+    (2, 4) because it normalises all lines of the multi-line expression to its
+    first line.  Without normalisation, coverage-stats cannot find (2, 4) in
+    observed_arcs and incorrectly marks line 2 as partial.
+    """
+    path = _write(tmp_path, """\
+        def f(x, cond):
+            if x > 0:
+                result = 'yes'
+            result = (
+                'a'
+                if cond
+                else 'b'
+            )
+            return result
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    if_line = next(i + 1 for i, ln in enumerate(src) if "if x > 0" in ln)
+
+    # Build a store whose arc data matches what the tracer actually records:
+    # - True branch:  (if_line, if_line+1) — enters the True body
+    # - False branch: (if_line, if_line+4) — jumps into the middle of the ternary
+    #   (the ternary condition line is if_line+4, inside a multi-line block starting
+    #    at if_line+2 per PythonParser)
+    true_target = if_line + 1   # "result = 'yes'"
+    raw_false_target = if_line + 4  # "if cond" — actual bytecode jump destination
+    store = SessionStore()
+    # Line data for all executed lines
+    for ln in (if_line, true_target, raw_false_target):
+        ld = store.get_or_create((path, ln))
+        ld.incidental_executions = 5
+    # Arc data: True branch taken (if_line → true_target) and
+    # False branch taken with raw target (if_line → raw_false_target)
+    ad_true = store.get_or_create_arc((path, if_line, true_target))
+    ad_true.incidental_executions = 5
+    ad_false = store.get_or_create_arc((path, if_line, raw_false_target))
+    ad_false.incidental_executions = 5
+
+    fa = _analyzer.analyze(path)
+    assert fa is not None
+    assert fa.static_arcs is not None, "coverage.py must be installed for static arcs"
+
+    line_data = {if_line: _ld(10), true_target: _ld(5), raw_false_target: _ld(5)}
+    result = DefaultReportBuilder()._analyze_branches(
+        fa, line_data, store=store, abs_path=path
+    )
+    assert if_line not in result.partial, (
+        f"Line {if_line} should not be partial: both branches were taken "
+        f"(True→{true_target}, False→{raw_false_target} normalises to {if_line + 2})"
+    )

@@ -38,6 +38,12 @@ class FileAnalysis:
     # uses for its branch-coverage denominator.  None when coverage.py is not
     # installed or its arc data could not be obtained.
     static_arcs: set[tuple[int, int]] | None = None
+    # Maps every physical line inside a multi-line statement to the statement's
+    # first line (coverage.py's PythonParser._multiline).  Used to normalise
+    # observed arc targets so that a tracer arc like (318, 322) — where 322 is
+    # inside a multi-line expression starting at 320 — matches the static arc
+    # (318, 320) produced by PythonParser.  Empty when coverage.py is not installed.
+    multiline_map: dict[int, int] = field(default_factory=dict)
 
 
 class ExecutableLinesAnalyzer:
@@ -67,9 +73,10 @@ class ExecutableLinesAnalyzer:
             return None
         source_lines = source.splitlines()
         static_arcs: set[tuple[int, int]] | None = None
+        multiline_map: dict[int, int] = {}
         if _HAS_COVERAGE_PARSER:
             try:
-                executable, excluded, static_arcs = self._parse_with_coverage(source)
+                executable, excluded, static_arcs, multiline_map = self._parse_with_coverage(source)
             except Exception:
                 excluded = self._excluded_lines(tree, source_lines)
                 executable = self._compute_executable_from_tree(tree) - excluded
@@ -83,9 +90,10 @@ class ExecutableLinesAnalyzer:
             executable_lines=executable,
             excluded_lines=excluded,
             static_arcs=static_arcs,
+            multiline_map=multiline_map,
         )
 
-    def _parse_with_coverage(self, source: str) -> tuple[set[int], set[int], set[tuple[int, int]]]:
+    def _parse_with_coverage(self, source: str) -> tuple[set[int], set[int], set[tuple[int, int]], dict[int, int]]:
         """Parse source using coverage.py's PythonParser for exact statement matching.
 
         Returns (executable_lines, excluded_lines, static_arcs).
@@ -120,7 +128,8 @@ class ExecutableLinesAnalyzer:
                 for t in countable:
                     static_arcs.add((src_ln, t))
 
-        return set(p.statements), excl, static_arcs
+        multiline_map: dict[int, int] = dict(p._multiline) if hasattr(p, "_multiline") else {}
+        return set(p.statements), excl, static_arcs, multiline_map
 
     def get_executable_lines(self, path: str) -> set[int]:
         """Return the set of line numbers that contain executable statements in *path*.

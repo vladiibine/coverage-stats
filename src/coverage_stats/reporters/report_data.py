@@ -200,6 +200,7 @@ class DefaultReportBuilder:
         if file_analysis.static_arcs is not None and observed_arcs is not None:
             return self._analyze_branches_from_arcs(
                 file_analysis.static_arcs, observed_arcs, _excluded,
+                multiline_map=file_analysis.multiline_map,
             )
 
         # Fallback: heuristic-based branch detection via BranchWalker.
@@ -210,11 +211,18 @@ class DefaultReportBuilder:
         static_arcs: set[tuple[int, int]],
         observed_arcs: dict[tuple[int, int], ArcData],
         excluded: set[int],
+        multiline_map: dict[int, int] | None = None,
     ) -> _BranchAnalysis:
         """Compute branch coverage by directly looking up observed arcs against static_arcs.
 
         This eliminates all heuristic-based branch detection.  Each arc in
         static_arcs is checked against the observed arc dict from the tracer.
+
+        multiline_map normalises observed arc targets: coverage.py's PythonParser
+        maps every physical line inside a multi-line statement to the statement's
+        first line (e.g. lines 320-324 of a ternary expression all map to 320).
+        The tracer fires LINE events at the raw bytecode-level line, so an arc like
+        (318, 322) must be normalised to (318, 320) before matching static_arcs.
         """
         arcs_total = len(static_arcs)
         arcs_covered = 0
@@ -226,16 +234,30 @@ class DefaultReportBuilder:
         from collections import defaultdict
         arcs_by_source: defaultdict[int, list[bool]] = defaultdict(list)
 
+        # Build a normalised view of observed_arcs: map each (src, raw_tgt) to
+        # (src, normalised_tgt) using multiline_map so that tracer arcs that land
+        # mid-expression (e.g. (318, 322)) match PythonParser's static arcs
+        # (e.g. (318, 320)) which always use the first line of the expression.
+        if multiline_map:
+            normalised_observed: dict[tuple[int, int], ArcData] = {}
+            for (src, tgt), ad in observed_arcs.items():
+                key = (src, multiline_map.get(tgt, tgt))
+                if key not in normalised_observed:
+                    normalised_observed[key] = ad
+            lookup = normalised_observed
+        else:
+            lookup = observed_arcs
+
         for src, tgt in static_arcs:
-            ad = observed_arcs.get((src, tgt))
-            taken = ad is not None and (ad.incidental_executions + ad.deliberate_executions) > 0
+            arc_data = lookup.get((src, tgt))
+            taken = arc_data is not None and (arc_data.incidental_executions + arc_data.deliberate_executions) > 0
             arcs_by_source[src].append(taken)
             if taken:
-                assert ad is not None
+                assert arc_data is not None
                 arcs_covered += 1
-                if ad.deliberate_executions > 0:
+                if arc_data.deliberate_executions > 0:
                     arcs_deliberate += 1
-                if ad.incidental_executions > 0:
+                if arc_data.incidental_executions > 0:
                     arcs_incidental += 1
 
         # Partial: source lines where some arcs were taken but not all

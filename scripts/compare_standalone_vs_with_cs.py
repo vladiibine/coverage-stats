@@ -23,14 +23,14 @@ Options:
 
 Examples — httpx:
 
-  python scripts/compare_standalone_vs_with_cs.py \
+  python3 scripts/compare_standalone_vs_with_cs.py \
       coverage-stats-extensive-examples/httpx \
       coverage-stats-extensive-examples/httpx/.venv \
       --source httpx \
       --tests tests \
       --output scripts/output/standalone-vs-with-cs-py39.md
 
-  python scripts/compare_standalone_vs_with_cs.py \
+  python3 scripts/compare_standalone_vs_with_cs.py \
       coverage-stats-extensive-examples/httpx \
       coverage-stats-extensive-examples/httpx/.venv-3.12 \
       --source httpx \
@@ -189,16 +189,20 @@ def build_report(
         sa = standalone.get(key, {})
         cs = with_cs.get(key, {})
 
-        sa_lines   = sa.get("covered_lines", 0)
-        sa_br      = sa.get("covered_branches", 0)
-        sa_stmts   = sa.get("num_statements", 0)
-        sa_num_br  = sa.get("num_branches", 0)
+        def _int(d: dict[str, object], k: str) -> int:
+            v = d.get(k, 0)
+            return v if isinstance(v, int) else 0
+
+        sa_lines   = _int(sa, "covered_lines")
+        sa_br      = _int(sa, "covered_branches")
+        sa_stmts   = _int(sa, "num_statements")
+        sa_num_br  = _int(sa, "num_branches")
         sa_pct     = sa.get("percent_covered")
 
-        cs_lines   = cs.get("covered_lines", 0)
-        cs_br      = cs.get("covered_branches", 0)
-        cs_stmts   = cs.get("num_statements", 0)
-        cs_num_br  = cs.get("num_branches", 0)
+        cs_lines   = _int(cs, "covered_lines")
+        cs_br      = _int(cs, "covered_branches")
+        cs_stmts   = _int(cs, "num_statements")
+        cs_num_br  = _int(cs, "num_branches")
         cs_pct     = cs.get("percent_covered")
 
         differs = (
@@ -208,22 +212,35 @@ def build_report(
             or sa_num_br != cs_num_br
         )
 
-        delta_lines = (cs_lines if isinstance(cs_lines, int) else 0) - (sa_lines if isinstance(sa_lines, int) else 0)
-        delta_br    = (cs_br if isinstance(cs_br, int) else 0) - (sa_br if isinstance(sa_br, int) else 0)
-
-        delta_lines_str = f"{delta_lines:+d}" if delta_lines != 0 else "—"
-        delta_br_str    = f"{delta_br:+d}"    if delta_br    != 0 else "—"
-
         display = key if len(key) <= 55 else "…" + key[-54:]
 
         sa_pct_str = f"{sa_pct:.{precision}f}" if isinstance(sa_pct, float) else "?"
         cs_pct_str = f"{cs_pct:.{precision}f}" if isinstance(cs_pct, float) else "?"
+        delta_pct = (sa_pct - cs_pct) if (isinstance(sa_pct, float) and isinstance(cs_pct, float)) else '-'
+
+        def green_or_red(number: int | str | float, zero: int | str | float = 0) -> str:
+            if number == zero:
+                return "✅ (0)"
+            else:
+                return f"❌ ({number})"
 
         row = (
             f"| `{display}` "
-            f"| {sa_stmts} | {sa_lines} | {sa_num_br} | {sa_br} | {sa_pct_str} "
-            f"| {cs_stmts} | {cs_lines} | {cs_num_br} | {cs_br} | {cs_pct_str} "
-            f"| {delta_lines_str} | {delta_br_str} |"
+            f"| {sa_stmts} "
+            f"| {cs_stmts} "
+            f"| {green_or_red(sa_stmts - cs_stmts)} "
+            f"| {sa_lines} "
+            f"| {cs_lines} "
+            f"| {green_or_red(sa_lines - cs_lines)} "
+            f"| {sa_num_br} "
+            f"| {cs_num_br} "
+            f"| {green_or_red(sa_num_br - cs_num_br)} "
+            f"| {sa_br} "
+            f"| {cs_br} "
+            f"| {green_or_red(sa_br - cs_br)} "
+            f"| {sa_pct_str} "
+            f"| {cs_pct_str} "
+            f"| {green_or_red(delta_pct, 0.0)} |"
         )
         if differs:
             differ_rows.append(row)
@@ -232,15 +249,40 @@ def build_report(
 
     header = (
         "| File "
-        "| sa stmts | sa cov lines | sa branches | sa cov br | sa % "
-        "| cs stmts | cs cov lines | cs branches | cs cov br | cs % "
-        "| Δ lines | Δ branches |"
+        "| sa stmts "
+        "| cs stmts "
+        "| Δ sa-cs "
+        "| sa cov lines "
+        "| cs cov lines "
+        "| Δ sa-cs "
+        "| sa branches "
+        "| cs branches "
+        "| Δ sa-cs "
+        "| sa cov br "
+        "| cs cov br "
+        "| Δ sa-cs "
+        "| sa % "
+        "| cs % "
+        "| Δ sa-cs |"
     )
     sep = (
         "|-----"
-        "|----------:|-------------:|------------:|----------:|------:"
-        "|----------:|-------------:|------------:|----------:|------:"
-        "|--------:|--------:|"
+        "|----------:"
+        "|-------------:"
+        "|------------:"
+        "|----------:"
+        "|------:"
+        "|----------:"
+        "|-------------:"
+        "|------------:"
+        "|----------:"
+        "|------:"
+        "|--------:"
+        "|--------:"
+        "|--------:"
+        "|--------:"
+        "|--------:"
+        "|"
     )
 
     differ_count = len(differ_rows)
