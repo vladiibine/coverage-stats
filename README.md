@@ -173,6 +173,7 @@ mypy is configured in `pyproject.toml` under `[tool.mypy]` with strict mode enab
 
 ## Publishing
 ```bash
+# 0. Change the version in pyproject.toml
 # 1. build
 uv run python -m build
 
