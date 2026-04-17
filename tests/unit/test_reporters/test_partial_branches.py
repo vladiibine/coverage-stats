@@ -12,18 +12,16 @@ from coverage_stats.executable_lines import ExecutableLinesAnalyzer
 
 _analyzer = ExecutableLinesAnalyzer()
 
-# True only when coverage.py is installed AND its PythonParser still exposes the
-# private ``_multiline`` attribute that our normalization path reads.  The attribute
-# was renamed to the public ``multiline_map`` somewhere between coverage 7.10.7 and
-# 7.13.5; tests that rely on the old attribute skip automatically on newer versions.
 try:
     from coverage.parser import PythonParser as _PythonParser
     _p = _PythonParser(text="x = 1")
     _p.parse_source()
     _COVERAGE_PRIVATE_MULTILINE_AVAILABLE = hasattr(_p, "_multiline")
+    _coverage_installed = True
     del _p, _PythonParser
 except Exception:
     _COVERAGE_PRIVATE_MULTILINE_AVAILABLE = False
+    _coverage_installed = False
 
 
 def _ld(count: int) -> LineData:
@@ -623,14 +621,7 @@ def test_branch_with_one_excluded_target_not_counted(tmp_path):
 
 
 @covers(DefaultReportBuilder._analyze_branches)
-@pytest.mark.skipif(
-    not _COVERAGE_PRIVATE_MULTILINE_AVAILABLE,
-    reason=(
-        "Requires coverage.py with PythonParser._multiline (< ~7.13); "
-        "newer versions renamed it to the public .multiline_map attribute "
-        "which our normalization path does not yet read"
-    ),
-)
+@pytest.mark.skipif(not _coverage_installed, reason="coverage.py not installed")
 def test_multiline_ternary_false_branch_not_partial(tmp_path):
     """Branch whose False-target lands in the middle of a multi-line expression is not partial.
 
@@ -685,4 +676,58 @@ def test_multiline_ternary_false_branch_not_partial(tmp_path):
     assert if_line not in result.partial, (
         f"Line {if_line} should not be partial: both branches were taken "
         f"(True→{true_target}, False→{raw_false_target} normalises to {if_line + 2})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# exit_through_with arc normalisation (Python 3.10+)
+# ---------------------------------------------------------------------------
+
+
+@covers(DefaultReportBuilder._analyze_branches)
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="exit_through_with is Python 3.10+")
+@pytest.mark.skipif(not _coverage_installed, reason="coverage.py not installed")
+def test_for_in_with_loop_exit_not_partial(tmp_path):
+    """for loop inside a with block: iterator exhaustion arc must not mark the for line partial.
+
+    On Python 3.10+, the tracer records arc(for_line, with_line) when the
+    iterator is exhausted (exit_through_with behaviour).  translate_arcs()
+    must convert this to arc(for_line, -scope_first_line) so that the static
+    arc (for_line, -scope_first_line) is seen as covered.
+    """
+    path = _write(tmp_path, """\
+        class CM:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def f(items):
+            with CM():
+                for x in items:
+                    pass
+    """)
+    src = (tmp_path / "subject.py").read_text().splitlines()
+    for_line  = next(i + 1 for i, ln in enumerate(src) if "for x" in ln)
+    with_line = next(i + 1 for i, ln in enumerate(src) if "with CM" in ln)
+    body_line = for_line + 1
+
+    # Python 3.10+ tracer records arc(for_line, with_line) when loop exits.
+    store = SessionStore()
+    for ln in (for_line, body_line):
+        ld = store.get_or_create((path, ln))
+        ld.incidental_executions = 2
+    store.get_or_create_arc((path, for_line, body_line)).incidental_executions = 2
+    store.get_or_create_arc((path, body_line, for_line)).incidental_executions = 2
+    # Simulate what Python 3.10 tracer records for loop exit:
+    store.get_or_create_arc((path, for_line, with_line)).incidental_executions = 1
+
+    fa = _analyzer.analyze(path)
+    assert fa is not None and fa.static_arcs is not None
+
+    line_data = {for_line: _ld(3), body_line: _ld(2)}
+    result = DefaultReportBuilder()._analyze_branches(
+        fa, line_data, store=store, abs_path=path
+    )
+    assert for_line not in result.partial, (
+        f"Line {for_line} (for loop) should not be partial: "
+        f"both branches taken — body entered and iterator exhausted via arc({for_line}, {with_line})"
     )

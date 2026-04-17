@@ -200,7 +200,7 @@ class DefaultReportBuilder:
         if file_analysis.static_arcs is not None and observed_arcs is not None:
             return self._analyze_branches_from_arcs(
                 file_analysis.static_arcs, observed_arcs, _excluded,
-                multiline_map=file_analysis.multiline_map,
+                cov_parser=file_analysis.cov_parser,
             )
 
         # Fallback: heuristic-based branch detection via BranchWalker.
@@ -211,18 +211,17 @@ class DefaultReportBuilder:
         static_arcs: set[tuple[int, int]],
         observed_arcs: dict[tuple[int, int], ArcData],
         excluded: set[int],
-        multiline_map: dict[int, int] | None = None,
+        cov_parser: object | None = None,
     ) -> _BranchAnalysis:
         """Compute branch coverage by directly looking up observed arcs against static_arcs.
 
         This eliminates all heuristic-based branch detection.  Each arc in
         static_arcs is checked against the observed arc dict from the tracer.
 
-        multiline_map normalises observed arc targets: coverage.py's PythonParser
-        maps every physical line inside a multi-line statement to the statement's
-        first line (e.g. lines 320-324 of a ternary expression all map to 320).
-        The tracer fires LINE events at the raw bytecode-level line, so an arc like
-        (318, 322) must be normalised to (318, 320) before matching static_arcs.
+        cov_parser, when provided, is used to call translate_arcs() on the
+        observed arcs before matching.  This handles both:
+          - multi-line statement normalisation (first_line())
+          - exit_through_with arc translation on Python 3.10+ (fix_with_jumps())
         """
         arcs_total = len(static_arcs)
         arcs_covered = 0
@@ -234,17 +233,17 @@ class DefaultReportBuilder:
         from collections import defaultdict
         arcs_by_source: defaultdict[int, list[bool]] = defaultdict(list)
 
-        # Build a normalised view of observed_arcs: map each (src, raw_tgt) to
-        # (src, normalised_tgt) using multiline_map so that tracer arcs that land
-        # mid-expression (e.g. (318, 322)) match PythonParser's static arcs
-        # (e.g. (318, 320)) which always use the first line of the expression.
-        if multiline_map:
-            normalised_observed: dict[tuple[int, int], ArcData] = {}
-            for (src, tgt), ad in observed_arcs.items():
-                key = (src, multiline_map.get(tgt, tgt))
-                if key not in normalised_observed:
-                    normalised_observed[key] = ad
-            lookup = normalised_observed
+        # Normalise observed arcs through coverage.py's translate_arcs().
+        # Calling it once per raw arc ensures each raw arc maps to exactly one
+        # translated arc, allowing the ArcData to follow the translation.
+        if cov_parser is not None and hasattr(cov_parser, 'translate_arcs'):
+            lookup: dict[tuple[int, int], ArcData] = {}
+            for raw_arc, _ad in observed_arcs.items():
+                translated = next(
+                    iter(cov_parser.translate_arcs([raw_arc])), raw_arc
+                )
+                if translated not in lookup:
+                    lookup[translated] = _ad
         else:
             lookup = observed_arcs
 

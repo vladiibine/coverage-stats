@@ -17,8 +17,10 @@ Arguments:
 Options:
     --source DIR  Source directory passed to --cov (default: src).
     --tests DIR   Test directory / file passed to pytest (default: tests).
-    --output FILE Path for the generated .md report
-                  (default: <project_dir>/standalone-vs-with-cs.md).
+    --output FILE Path for the generated .md report.  All artefacts (HTML
+                  reports) are placed in the same directory as the .md file.
+                  (default: scripts/output/<stem>/<stem>.md where stem encodes
+                  the Python version and timestamp).
     --precision N Decimal places in reported percentages (default: 4).
 
 Examples — httpx:
@@ -27,15 +29,13 @@ Examples — httpx:
       coverage-stats-extensive-examples/httpx \
       coverage-stats-extensive-examples/httpx/.venv \
       --source httpx \
-      --tests tests \
-      --output scripts/output/standalone-vs-with-cs-py39.md
+      --tests tests
 
   python3 scripts/compare_standalone_vs_with_cs.py \
       coverage-stats-extensive-examples/httpx \
       coverage-stats-extensive-examples/httpx/.venv-3.12 \
       --source httpx \
-      --tests tests \
-      --output scripts/output/standalone-vs-with-cs-py312.md
+      --tests tests
 """
 from __future__ import annotations
 
@@ -65,7 +65,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output",
         default=None,
-        help="Output .md path (default: <project_dir>/standalone-vs-with-cs.md)",
+        help="Path for the .md report; HTML reports go in the same directory "
+             "(default: scripts/output/<stem>/<stem>.md)",
     )
     p.add_argument("--precision", type=int, default=4, help="Decimal places (default: 4)")
     return p.parse_args()
@@ -74,6 +75,32 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Running the tests
 # ---------------------------------------------------------------------------
+
+def _scripts_output_dir() -> Path:
+    """Return <repo_root>/scripts/output, creating it if necessary."""
+    return Path(__file__).parent / "output"
+
+
+def _python_version_str(venv_dir: Path) -> str:
+    """Return a short version string like '3.9' from the venv's Python binary."""
+    for candidate in (
+        venv_dir / "bin" / "python",
+        venv_dir / "bin" / "python3",
+        venv_dir / "Scripts" / "python.exe",
+        venv_dir / "Scripts" / "python",
+    ):
+        if candidate.exists():
+            try:
+                result = subprocess.run(
+                    [str(candidate), "-c",
+                     "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                return result.stdout.strip()
+            except Exception:
+                pass
+    return "unknown"
+
 
 def find_pytest(venv_dir: Path) -> Path:
     for candidate in (
@@ -318,11 +345,13 @@ def main() -> int:
 
     project_dir = Path(args.project_dir).resolve()
     venv_dir    = Path(args.venv_dir).resolve()
-    output_path = (
-        Path(args.output).resolve()
-        if args.output
-        else project_dir / "standalone-vs-with-cs.md"
-    )
+    if args.output:
+        output_path = Path(args.output).resolve()
+    else:
+        py_ver = _python_version_str(venv_dir)
+        stamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+        stem = f"cov_standalone_vs_with_cs_py_{py_ver}_{stamp}"
+        output_path = (_scripts_output_dir() / stem / f"{stem}.md").resolve()
 
     if not project_dir.is_dir():
         print(f"error: project_dir not found: {project_dir}", file=sys.stderr)
@@ -334,9 +363,11 @@ def main() -> int:
     pytest_bin = find_pytest(venv_dir)
 
     # HTML reports live next to the output .md so they persist after the run.
+    run_dir = output_path.parent
+    run_dir.mkdir(parents=True, exist_ok=True)
     stem = output_path.stem
-    html_standalone = output_path.parent / f"{stem}-standalone-html"
-    html_with_cs    = output_path.parent / f"{stem}-with-cs-html"
+    html_standalone = run_dir / f"{stem}-standalone-html"
+    html_with_cs    = run_dir / f"{stem}-with-cs-html"
 
     with tempfile.TemporaryDirectory(prefix="cov-sa-vs-cs-") as tmp:
         tmp_path       = Path(tmp)
@@ -357,9 +388,8 @@ def main() -> int:
         with_cs    = load_cov_json(cov_json_cs)
 
     report = build_report(standalone, with_cs, args.precision, html_standalone, html_with_cs)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
-    print(f"\nReport written to: {output_path}")
+    print(f"\nReport:                  {output_path}")
     print(f"HTML (standalone):   {html_standalone / 'index.html'}")
     print(f"HTML (with cs):      {html_with_cs / 'index.html'}")
     return 0

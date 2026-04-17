@@ -38,12 +38,11 @@ class FileAnalysis:
     # uses for its branch-coverage denominator.  None when coverage.py is not
     # installed or its arc data could not be obtained.
     static_arcs: set[tuple[int, int]] | None = None
-    # Maps every physical line inside a multi-line statement to the statement's
-    # first line (coverage.py's PythonParser._multiline).  Used to normalise
-    # observed arc targets so that a tracer arc like (318, 322) — where 322 is
-    # inside a multi-line expression starting at 320 — matches the static arc
-    # (318, 320) produced by PythonParser.  Empty when coverage.py is not installed.
-    multiline_map: dict[int, int] = field(default_factory=dict)
+    # The PythonParser instance used to parse this file, when coverage.py is
+    # installed.  Kept alive so that translate_arcs() can be called during
+    # branch analysis to normalise observed arcs (multiline normalisation and
+    # exit_through_with arc translation for Python 3.10+).  None otherwise.
+    cov_parser: object | None = None
 
 
 class ExecutableLinesAnalyzer:
@@ -73,10 +72,10 @@ class ExecutableLinesAnalyzer:
             return None
         source_lines = source.splitlines()
         static_arcs: set[tuple[int, int]] | None = None
-        multiline_map: dict[int, int] = {}
+        cov_parser: object | None = None
         if _HAS_COVERAGE_PARSER:
             try:
-                executable, excluded, static_arcs, multiline_map = self._parse_with_coverage(source)
+                executable, excluded, static_arcs, cov_parser = self._parse_with_coverage(source)
             except Exception:
                 excluded = self._excluded_lines(tree, source_lines)
                 executable = self._compute_executable_from_tree(tree) - excluded
@@ -90,16 +89,17 @@ class ExecutableLinesAnalyzer:
             executable_lines=executable,
             excluded_lines=excluded,
             static_arcs=static_arcs,
-            multiline_map=multiline_map,
+            cov_parser=cov_parser,
         )
 
-    def _parse_with_coverage(self, source: str) -> tuple[set[int], set[int], set[tuple[int, int]], dict[int, int]]:
+    def _parse_with_coverage(self, source: str) -> tuple[set[int], set[int], set[tuple[int, int]], object]:
         """Parse source using coverage.py's PythonParser for exact statement matching.
 
-        Returns (executable_lines, excluded_lines, static_arcs).
+        Returns (executable_lines, excluded_lines, static_arcs, parser).
         ``static_arcs`` is the set of (source, target) arc pairs where the
         source line has ≥2 non-excluded positive targets — matching coverage.py's
-        branch-coverage denominator exactly.
+        branch-coverage denominator exactly.  ``parser`` is the PythonParser
+        instance, kept so that translate_arcs() can be called later.
         """
         from collections import defaultdict
 
@@ -128,8 +128,7 @@ class ExecutableLinesAnalyzer:
                 for t in countable:
                     static_arcs.add((src_ln, t))
 
-        multiline_map: dict[int, int] = dict(p._multiline) if hasattr(p, "_multiline") else {}
-        return set(p.statements), excl, static_arcs, multiline_map
+        return set(p.statements), excl, static_arcs, p
 
     def get_executable_lines(self, path: str) -> set[int]:
         """Return the set of line numbers that contain executable statements in *path*.

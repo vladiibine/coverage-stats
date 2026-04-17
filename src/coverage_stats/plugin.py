@@ -471,6 +471,11 @@ def pytest_load_initial_conftests(early_config: pytest.Config, parser: pytest.Pa
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    """Hook to plug into the pytest plugin system.
+
+    By design, we just retrieve the customization class and call .configure() on it, to allow users to
+    customize things to the maximum extent possible.
+    """
     if not config.getoption("--coverage-stats", default=False):
         return
     customization_path = (

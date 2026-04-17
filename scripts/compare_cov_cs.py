@@ -137,10 +137,12 @@ def run_tests(
         # coverage-stats: JSON for comparison + HTML for browsing
         "--coverage-stats",
         "--coverage-stats-format=json,html",
+        "--coverage-stats-precision=6",
         f"--coverage-stats-output={stats_out}",
         # coverage.py: JSON for comparison + HTML for browsing
         f"--cov={source}",
         "--cov-branch",
+        "--cov-precision=6",
         f"--cov-report=json:{cov_json}",
         f"--cov-report=html:{cov_html}",
         # Suppress the "CoverageWarning: --include is ignored because --source
@@ -228,7 +230,7 @@ def _differs_marker(cs_pct: float | None, cov_pct: float | None, precision: int)
     if cs_pct is None or cov_pct is None:
         return "N/A"
     fmt = f"{{:.{precision}f}}"
-    return "**YES**" if fmt.format(cs_pct) != fmt.format(cov_pct) else "no"
+    return "❌(YES)" if fmt.format(cs_pct) != fmt.format(cov_pct) else "✅(no)"
 
 
 def build_report(
