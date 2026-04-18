@@ -96,7 +96,7 @@ class TestSessionStoreToDict:
     def test_empty_store_returns_empty_dict(self) -> None:
         store = SessionStore()
         result = store.to_dict()
-        assert result == {"lines": {}, "arcs": {}}
+        assert result == {"lines": {}, "arcs": {}, "file_asserts": {}}
 
     def test_to_dict_contains_null_byte_separated_key(self) -> None:
         store = SessionStore()
@@ -210,3 +210,83 @@ class TestSessionStoreRoundTrip:
         assert restored_ld.deliberate_asserts == 6
         assert restored_ld.incidental_tests == 5
         assert restored_ld.deliberate_tests == 4
+
+
+@covers(SessionStore.add_file_asserts, SessionStore.get_file_asserts)
+class TestFileAsserts:
+    def test_get_file_asserts_returns_zeros_for_unknown_path(self) -> None:
+        store = SessionStore()
+        assert store.get_file_asserts("/unknown.py") == (0, 0)
+
+    def test_add_incidental_accumulates(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/a.py", incidental=3)
+        store.add_file_asserts("/a.py", incidental=2)
+        assert store.get_file_asserts("/a.py") == (5, 0)
+
+    def test_add_deliberate_accumulates(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/a.py", deliberate=4)
+        store.add_file_asserts("/a.py", deliberate=1)
+        assert store.get_file_asserts("/a.py") == (0, 5)
+
+    def test_add_both_independent(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/a.py", incidental=2, deliberate=3)
+        assert store.get_file_asserts("/a.py") == (2, 3)
+
+    def test_different_files_are_independent(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/a.py", incidental=5)
+        store.add_file_asserts("/b.py", deliberate=7)
+        assert store.get_file_asserts("/a.py") == (5, 0)
+        assert store.get_file_asserts("/b.py") == (0, 7)
+
+    def test_merge_accumulates_file_asserts(self) -> None:
+        a = SessionStore()
+        a.add_file_asserts("/app.py", incidental=3, deliberate=1)
+
+        b = SessionStore()
+        b.add_file_asserts("/app.py", incidental=2, deliberate=4)
+
+        a.merge(b)
+
+        assert a.get_file_asserts("/app.py") == (5, 5)
+
+    def test_merge_disjoint_files(self) -> None:
+        a = SessionStore()
+        a.add_file_asserts("/x.py", incidental=1)
+
+        b = SessionStore()
+        b.add_file_asserts("/y.py", deliberate=2)
+
+        a.merge(b)
+
+        assert a.get_file_asserts("/x.py") == (1, 0)
+        assert a.get_file_asserts("/y.py") == (0, 2)
+
+    def test_roundtrip_preserves_file_asserts(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/a.py", incidental=5, deliberate=2)
+        store.add_file_asserts("/b.py", incidental=1)
+
+        restored = SessionStore.from_dict(store.to_dict())
+
+        assert restored.get_file_asserts("/a.py") == (5, 2)
+        assert restored.get_file_asserts("/b.py") == (1, 0)
+        assert restored.get_file_asserts("/c.py") == (0, 0)
+
+    def test_to_dict_includes_file_asserts_key(self) -> None:
+        store = SessionStore()
+        store.add_file_asserts("/app.py", incidental=3)
+
+        result = store.to_dict()
+
+        assert "file_asserts" in result
+        assert result["file_asserts"]["/app.py"] == [3, 0]
+
+    def test_from_dict_missing_file_asserts_key_is_backward_compatible(self) -> None:
+        """Old serialized stores without 'file_asserts' load cleanly."""
+        old_format = {"lines": {}, "arcs": {}}
+        store = SessionStore.from_dict(old_format)
+        assert store.get_file_asserts("/any.py") == (0, 0)

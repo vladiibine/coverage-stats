@@ -287,6 +287,39 @@ def test_assertion_pass_noop_when_disabled():
     assert ctx.current_assert_count == 0
 
 
+@covers(TracingCoordinator.pytest_assertion_pass)
+def test_assertion_pass_skips_app_code_frame(tmp_path):
+    """Assertions from frames in source_dirs are not counted."""
+    coord, _store, ctx, _tracer, _resolver = _make_tracing_coord()
+    ctx.source_dirs = [str(tmp_path)]
+    ctx.current_phase = "call"
+    ctx.current_test_item = SimpleNamespace()
+
+    # Simulate an assertion coming from app code: patch _assertion_frame_is_app_code
+    # to return True as if the current frame were inside a source-dir file.
+    import unittest.mock as mock
+    with mock.patch.object(coord, "_assertion_frame_is_app_code", return_value=True):
+        coord.pytest_assertion_pass(SimpleNamespace(), lineno=1, orig="x", expl="x")  # type: ignore[arg-type]
+
+    assert ctx.current_assert_count == 0
+
+
+@covers(TracingCoordinator.pytest_assertion_pass)
+def test_assertion_pass_counts_test_file_assertions_even_with_source_dirs(tmp_path):
+    """Assertions from test files are counted even when source_dirs is configured."""
+    coord, _store, ctx, _tracer, _resolver = _make_tracing_coord()
+    ctx.source_dirs = [str(tmp_path / "src")]
+    ctx.current_phase = "call"
+    ctx.current_test_item = SimpleNamespace()
+
+    # Called directly from this test function (which is in test_coordinators.py).
+    # _assertion_frame_is_app_code will walk the stack and find the test file frame,
+    # whose basename starts with "test_", so it must return False — assertion counted.
+    coord.pytest_assertion_pass(SimpleNamespace(), lineno=1, orig="x", expl="x")  # type: ignore[arg-type]
+
+    assert ctx.current_assert_count == 1
+
+
 # ---------------------------------------------------------------------------
 # TracingCoordinator — pytest_sessionstart / pytest_collectstart
 # ---------------------------------------------------------------------------

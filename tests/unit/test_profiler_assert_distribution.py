@@ -237,3 +237,98 @@ def test_distribute_asserts_resets_count_and_lines_after_distribution():
 
     assert ctx.current_assert_count == 0
     assert ctx.current_test_lines == set()
+
+
+# --- file-level assert accumulation ---
+
+
+@covers(ProfilerContext.distribute_asserts)
+def test_distribute_asserts_file_level_not_multiplied_by_line_count():
+    """File-level incidental assert count = K, not K * N lines touched."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(covers_lines=frozenset()),
+        current_assert_count=3,
+    )
+    # 10 lines touched, 3 assertions — file-level should be 3, not 30
+    ctx.current_test_lines = {(f, ln) for ln in range(1, 11)}
+
+    ctx.distribute_asserts(store)
+
+    inc, del_ = store.get_file_asserts(f)
+    assert inc == 3
+    assert del_ == 0
+
+
+@covers(ProfilerContext.distribute_asserts)
+def test_distribute_asserts_file_level_deliberate_when_covers_targets_file():
+    """File-level deliberate asserts = K when covers_lines includes lines from that file."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(covers_lines=frozenset([(f, 1)])),
+        current_assert_count=2,
+    )
+    ctx.current_covers_lines = frozenset([(f, 1)])
+    ctx.current_test_lines = {(f, 1), (f, 2), (f, 3)}
+
+    ctx.distribute_asserts(store)
+
+    inc, del_ = store.get_file_asserts(f)
+    assert del_ == 2
+    assert inc == 0
+
+
+@covers(ProfilerContext.distribute_asserts)
+def test_distribute_asserts_file_level_across_multiple_files():
+    """Each file touched gets the assert count once, regardless of line count."""
+    store = SessionStore()
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(covers_lines=frozenset()),
+        current_assert_count=4,
+    )
+    ctx.current_test_lines = {("/a.py", 1), ("/a.py", 2), ("/b.py", 1)}
+
+    ctx.distribute_asserts(store)
+
+    assert store.get_file_asserts("/a.py") == (4, 0)
+    assert store.get_file_asserts("/b.py") == (4, 0)
+
+
+@covers(ProfilerContext.distribute_asserts)
+def test_distribute_asserts_file_level_zero_count_does_not_write():
+    """When assert count is 0, file-level asserts remain at 0."""
+    store = SessionStore()
+    f = "/fake/file.py"
+    ctx = ProfilerContext(
+        current_phase="teardown",
+        current_test_item=make_item(),
+        current_assert_count=0,
+    )
+    ctx.current_test_lines = {(f, 1), (f, 2)}
+
+    ctx.distribute_asserts(store)
+
+    assert store.get_file_asserts(f) == (0, 0)
+
+
+@covers(ProfilerContext.distribute_asserts)
+def test_distribute_asserts_file_level_accumulates_across_tests():
+    """Multiple tests contribute independently to the file-level total."""
+    store = SessionStore()
+    f = "/fake/file.py"
+
+    for count in (2, 3):
+        ctx = ProfilerContext(
+            current_phase="teardown",
+            current_test_item=make_item(covers_lines=frozenset()),
+            current_assert_count=count,
+        )
+        ctx.current_test_lines = {(f, 1)}
+        ctx.distribute_asserts(store)
+
+    assert store.get_file_asserts(f) == (5, 0)

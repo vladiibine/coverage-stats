@@ -60,6 +60,76 @@ def _is_real_return(frame: types.FrameType) -> bool:
 
 @dataclass
 class ProfilerContext:
+    """Per-session scratchpad shared between the tracer and TracingCoordinator.
+
+    This object is the single source of truth for "what is happening right now"
+    during a test run. The tracer (LineTracer / MonitoringLineTracer) writes to
+    it on every line event; TracingCoordinator reads and resets it at each pytest
+    lifecycle boundary (setup → call → teardown).
+
+    Ownership and lifetime
+    ----------------------
+    One ProfilerContext is created per pytest session and passed to both the
+    tracer and TracingCoordinator at construction time.  It lives for the entire
+    session.
+
+    Data flow
+    ---------
+    The fields fall into three groups:
+
+    1. **Routing state** (set by TracingCoordinator, read by the tracer):
+       - ``current_phase`` — "setup" | "call" | "teardown" | None.  The tracer
+         records line events only during "call"; pre-test lines are buffered
+         when phase is None.
+       - ``current_test_item`` — the active pytest item; used to gate recording
+         so lines executed outside a test are not attributed to a test.
+       - ``current_covers_lines`` — the frozen set of ``(filepath, lineno)`` pairs
+         resolved from ``@covers`` decorators for the current test.  Set once per
+         test in ``pytest_runtest_setup`` and consulted on every line event to
+         decide incidental vs deliberate.
+       - ``source_dirs`` / ``exclude_dirs`` — resolved paths from
+         ``coverage_stats_source`` / ``coverage_stats_exclude``; used by the
+         tracer's ``_in_scope`` check and by
+         ``TracingCoordinator._assertion_frame_is_app_code``.
+
+    2. **Accumulation buffers** (written by the tracer, drained by
+       TracingCoordinator):
+       - ``current_test_lines`` — ``(filepath, lineno)`` pairs executed during
+         the current test's call phase.  Cleared after each test by
+         ``distribute_asserts``.
+       - ``current_assert_count`` — raw count of passing assertions recorded by
+         ``pytest_assertion_pass`` via ``record_assertion``.  Carries no file or
+         incidental/deliberate context; that categorisation happens in
+         ``distribute_asserts`` when the count is combined with
+         ``current_test_lines`` and ``current_covers_lines``.
+       - ``pre_test_lines`` / ``pre_test_arcs`` — lines and arc transitions
+         observed before any test phase (module imports, module-level code).
+         Flushed into the store by
+         ``TracingCoordinator.flush_pre_test_lines``.
+
+    3. **Session-level config**:
+       - ``track_test_ids`` — mirrors the ``--coverage-stats-no-track-test-ids``
+         flag; when False, ``distribute_asserts`` omits the nodeid from
+         ``LineData`` to reduce memory usage.
+       - ``meta_path_ensurer`` — the ``sys.meta_path`` hook registered during
+         ``pytest_load_initial_conftests`` so conftest imports are traced;
+         removed by TracingCoordinator once conftest loading is done.
+
+    Relationship to other classes
+    ------------------------------
+    - **LineTracer / MonitoringLineTracer** — hold a reference to this context
+      and write to ``current_test_lines``, ``pre_test_lines``,
+      ``pre_test_arcs``, and use ``current_phase`` / ``current_test_item`` /
+      ``current_covers_lines`` on every line event.
+    - **TracingCoordinator** — drives the phase transitions
+      (``current_phase``, ``current_test_item``, ``current_covers_lines``) and
+      calls ``record_assertion`` / ``distribute_asserts`` at the appropriate
+      pytest hooks.
+    - **SessionStore** — the permanent record.  ProfilerContext is volatile
+      per-test state; ``distribute_asserts`` drains it into the store at the
+      end of each test's teardown.
+    """
+
     current_test_item: pytest.Item | None = None
     current_phase: str | None = None  # "setup" | "call" | "teardown"
     current_assert_count: int = 0
@@ -99,6 +169,15 @@ class ProfilerContext:
             if self.track_test_ids and self.current_test_item is not None
             else None
         )
+        # File-level accumulation: write once per unique file (not once per line),
+        # so the index report shows the true assertion count rather than count × lines.
+        if count:
+            covers_files = {k[0] for k in covers_lines} if covers_lines else set()
+            for filepath in {k[0] for k in self.current_test_lines}:
+                if filepath in covers_files:
+                    store.add_file_asserts(filepath, deliberate=count)
+                else:
+                    store.add_file_asserts(filepath, incidental=count)
         for key in self.current_test_lines:
             ld = store.get_or_create(key)
             if key in covers_lines:

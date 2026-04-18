@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -143,9 +145,73 @@ class TracingCoordinator:
         self._ctx.current_test_item = None
         self._ctx.current_covers_lines = frozenset()
 
+    def _assertion_frame_is_app_code(self) -> bool:
+        """Walk the call stack to check whether the passing assertion is in app code.
+
+        pytest_assertion_pass fires for every rewritten assertion — including those
+        in app modules registered via pytest.register_assert_rewrite().  Walking the
+        stack lets us identify the frame that contains the assert statement and check
+        whether its file falls inside the configured source dirs.
+
+        Returns True (skip this assertion) when:
+        - the first non-internal user-code frame is inside source_dirs, AND
+        - it is not excluded by exclude_dirs (test dirs), AND
+        - its filename does not match a test-file pattern (test_*.py / *_test.py /
+          conftest.py) — this guard keeps the filter correct when source_dirs is
+          broad (e.g. ".") and test files live alongside source files.
+
+        Returns False (count this assertion) in all other cases, including when
+        source_dirs is empty (no filtering configured).
+        """
+        source_dirs = self._ctx.source_dirs
+        if not source_dirs:
+            return False
+
+        exclude_dirs = self._ctx.exclude_dirs
+
+        # Frame 0 = this method, frame 1 = pytest_assertion_pass, frame 2 = caller.
+        frame: FrameType | None = sys._getframe(2)
+        while frame is not None:
+            co_filename = frame.f_code.co_filename
+            if not co_filename.startswith("<"):
+                # Skip pytest, pluggy, and coverage_stats internals.
+                if (
+                    "_pytest" not in co_filename
+                    and "pluggy" not in co_filename
+                    and "coverage_stats" not in co_filename
+                ):
+                    basename = Path(co_filename).name
+                    # Test infrastructure files: always count their assertions.
+                    if (
+                        basename.startswith("test_")
+                        or basename.endswith("_test.py")
+                        or basename == "conftest.py"
+                    ):
+                        return False
+
+                    if "site-packages" in co_filename:
+                        return False
+
+                    filename = str(Path(co_filename).resolve())
+
+                    if exclude_dirs and any(
+                        filename == d or filename.startswith(d + "/")
+                        for d in exclude_dirs
+                    ):
+                        return False
+
+                    return any(
+                        filename == d or filename.startswith(d + "/")
+                        for d in source_dirs
+                    )
+            frame = frame.f_back
+        return False
+
     def pytest_assertion_pass(self, item: pytest.Item, lineno: int, orig: str, expl: str) -> None:
-        """Increment the assert counter each time an assertion passes during 'call'."""
+        """Increment the assert counter for test-code assertions only during 'call'."""
         if not self._enabled:
+            return
+        if self._assertion_frame_is_app_code():
             return
         self._ctx.record_assertion()
 

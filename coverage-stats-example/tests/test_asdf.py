@@ -6,6 +6,13 @@ from asdf import (
     weird_case_multiple_statements_on_one_line, weird_corner_cases_4_with_,
     weird_corner_cases_5_match,
 )
+from asdf2 import ( foo_sum2
+)
+
+def test_foo_sum2():
+    assert foo_sum2(1, 2) == 3
+    assert foo_sum2(1, 2) == 3
+
 
 
 def test_badly_foo_sum():

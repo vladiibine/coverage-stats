@@ -262,6 +262,68 @@ coverage_stats_output_dir = coverage-stats-report
         )
 
 
+def test_app_code_asserts_not_counted_when_registered_for_rewriting(pytester):
+    """App code asserts must not inflate counts even when registered for pytest rewriting.
+
+    When a user calls pytest.register_assert_rewrite("mylib") in conftest.py,
+    pytest rewrites mylib's assertions and pytest_assertion_pass fires for them.
+    The plugin must recognise that these frames are in the configured source dirs
+    and skip them — only test-file assertions should be counted.
+    """
+    src_dir = pytester.path / "src"
+    src_dir.mkdir()
+    # App code with 2 assert statements — these must NOT be counted
+    (src_dir / "mylib.py").write_text(
+        "def validate(x):\n"
+        "    assert isinstance(x, int)\n"
+        "    assert x >= 0\n"
+        "    return x * 2\n"
+    )
+
+    # Register mylib for assertion rewriting — this is what triggers the bug
+    pytester.makeconftest("import pytest\npytest.register_assert_rewrite('mylib')\n")
+
+    # Test has exactly 1 assert
+    pytester.makepyfile(
+        test_mylib="""
+from mylib import validate
+
+def test_validate():
+    assert validate(5) == 10
+"""
+    )
+
+    pytester.makeini(
+        """
+[pytest]
+pythonpath = src
+coverage_stats_source = src
+coverage_stats_format = json
+coverage_stats_output_dir = coverage-stats-report
+"""
+    )
+
+    result = pytester.runpytest("--coverage-stats", "-v")
+    result.assert_outcomes(passed=1)
+
+    report = json.loads(
+        (pytester.path / "coverage-stats-report" / "coverage-stats.json").read_text()
+    )
+    lines = report["files"][
+        next(k for k in report["files"] if "mylib" in k and "test_" not in k)
+    ]["lines"]
+
+    in_test = {lno: ld for lno, ld in lines.items() if ld["incidental_tests"] > 0}
+    assert in_test, "Expected lines executed inside a test in mylib"
+
+    # Only the 1 assert in test_validate should be recorded — NOT the 2 in validate()
+    for lno, ld in in_test.items():
+        assert ld["incidental_asserts"] == 1, (
+            f"Line {lno}: expected incidental_asserts=1 (one test assert), "
+            f"got {ld['incidental_asserts']} — app code asserts are leaking in"
+        )
+
+
 def test_conftest_import_lines_are_tracked(pytester):
     """Module-level lines in libraries imported by conftest.py must appear in the report.
 

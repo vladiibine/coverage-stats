@@ -12,6 +12,7 @@ CORE
   * generate the reports via a new command, after the tests have finished running, not as part of the test run (like coverage does it)
   * are there parts of coverage.py I can reuse? PythonParser?
   * code comment to turn off counting of inc/deliberate asserts/test/executions
+  * profile memory usage, and make sure we're not taking up too much
   * [v] instead of "lines", we need "statements", like coverage does it
   * [v] add "number of incidental/deliberate tests that ran on this line of code"  
   * [v] assert_counter.py -> the assert incrementing logic there seems to belong more in the LineProfiler. Move it there if possible, or at least allow the user to parametrize it
@@ -71,3 +72,7 @@ Non-functional requirements:
   * [v] check that performance is not seriously degraded
   * [v] the example project, move it 
   * [v] the small project - turn it into a larger one, with lots of lines, files and tests (can be copy-pasted)
+
+BUGS:
+* number of incidental asserts seems a bit absurd
+* the ordering of the arguments: sometimes I don't get output. Document or fix

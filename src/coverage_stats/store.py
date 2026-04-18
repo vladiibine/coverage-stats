@@ -39,12 +39,30 @@ class SessionStore:
         # remains safe.
         self._data: defaultdict[tuple[str, int], LineData] = defaultdict(LineData)
         self._arc_data: defaultdict[tuple[str, int, int], ArcData] = defaultdict(ArcData)
+        # File-level assert totals: written once per test per file (not per line),
+        # so the index report shows the true assertion count rather than count × lines.
+        self._file_incidental_asserts: defaultdict[str, int] = defaultdict(int)
+        self._file_deliberate_asserts: defaultdict[str, int] = defaultdict(int)
 
     def get_or_create(self, key: tuple[str, int]) -> LineData:
         return self._data[key]
 
     def get_or_create_arc(self, key: tuple[str, int, int]) -> ArcData:
         return self._arc_data[key]
+
+    def add_file_asserts(self, path: str, *, incidental: int = 0, deliberate: int = 0) -> None:
+        """Accumulate file-level assert counts (written once per test, not per line)."""
+        if incidental:
+            self._file_incidental_asserts[path] += incidental
+        if deliberate:
+            self._file_deliberate_asserts[path] += deliberate
+
+    def get_file_asserts(self, path: str) -> tuple[int, int]:
+        """Return (incidental_asserts, deliberate_asserts) for a file."""
+        return (
+            self._file_incidental_asserts.get(path, 0),
+            self._file_deliberate_asserts.get(path, 0),
+        )
 
     def has_arc_data(self) -> bool:
         """Return True if the store contains any arc data."""
@@ -87,6 +105,10 @@ class SessionStore:
             ad = self.get_or_create_arc(arc_key)
             ad.incidental_executions += other_ad.incidental_executions
             ad.deliberate_executions += other_ad.deliberate_executions
+        for path, count in other._file_incidental_asserts.items():
+            self._file_incidental_asserts[path] += count
+        for path, count in other._file_deliberate_asserts.items():
+            self._file_deliberate_asserts[path] += count
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the store to a JSON-safe dict.
@@ -118,7 +140,13 @@ class SessionStore:
                 ad.incidental_executions,
                 ad.deliberate_executions,
             ]
-        return {"lines": lines, "arcs": arcs}
+        file_asserts: dict[str, list[int]] = {}
+        for path in set(self._file_incidental_asserts) | set(self._file_deliberate_asserts):
+            file_asserts[path] = [
+                self._file_incidental_asserts.get(path, 0),
+                self._file_deliberate_asserts.get(path, 0),
+            ]
+        return {"lines": lines, "arcs": arcs, "file_asserts": file_asserts}
 
     def lines_by_file(self) -> dict[str, list[int]]:
         """Return executed line numbers grouped by file path.
@@ -174,4 +202,7 @@ class SessionStore:
             ad = store.get_or_create_arc((path, from_line, to_line))
             ad.incidental_executions = values[0]
             ad.deliberate_executions = values[1]
+        for path, values in data.get("file_asserts", {}).items():
+            store._file_incidental_asserts[path] = values[0]
+            store._file_deliberate_asserts[path] = values[1]
         return store

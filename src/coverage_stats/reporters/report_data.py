@@ -90,8 +90,7 @@ class DefaultReportBuilder:
                 1 for ln in executable
                 if self._is_stmt_covered(ln, line_data, stmt_spans, incidental=True)
             )
-            incidental_asserts = sum(ld.incidental_asserts for ld in line_data.values())
-            deliberate_asserts = sum(ld.deliberate_asserts for ld in line_data.values())
+            incidental_asserts, deliberate_asserts = store.get_file_asserts(abs_path)
             incidental_test_ids = frozenset().union(*(ld.incidental_test_ids for ld in line_data.values()))
             deliberate_test_ids = frozenset().union(*(ld.deliberate_test_ids for ld in line_data.values()))
 
